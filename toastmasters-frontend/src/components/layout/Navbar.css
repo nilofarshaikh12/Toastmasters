@@ -1,0 +1,9 @@
+/* Extra spacing or hover effect if needed */
+.navbar-nav .nav-link {
+  font-size: 16px;
+  transition: color 0.2s ease-in-out;
+}
+
+.navbar-nav .nav-link:hover {
+  color: #f8d210; /* golden highlight on hover */
+}
