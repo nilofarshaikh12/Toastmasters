@@ -3,24 +3,93 @@ import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
 import roleService from "../../api/roleService.js";
 import { useAuth } from "../../context/AuthContext.jsx";
-import { ROLE_CATEGORY_LABELS, MEETING_CATEGORIES, MEETING_CATEGORY_LABELS } from "../../constants/meetingCategories.js";
+import { ROLE_CATEGORIES, ROLE_CATEGORY_LABELS } from "../../constants/roleCategories";
 
 function RolesTable() {
   const [roles, setRoles] = useState([]);
   const [filteredRoles, setFilteredRoles] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const { isVPEducation } = useAuth();
 
   useEffect(() => {
     fetchRoles();
   }, []);
 
+  // Role categories mapping with shared roles
+  const ROLE_CATEGORY_MAP = {
+    [ROLE_CATEGORIES.ALL]: {
+      // Will be populated dynamically from API
+      roles: [],
+      // These roles are shared across all meeting types
+      sharedRoles: ['Toastmaster', 'Sergeant at Arms', 'Timer', 'Grammarian', 'Ah-Counter']
+    },
+    [ROLE_CATEGORIES.REGULAR_MEETING]: {
+      roles: [
+        'Speaker', 'Evaluator', 'Table Topics Master', 'General Evaluator',
+        'VP Education', 'VP Membership', 'President', 'Secretary', 'Treasurer'
+      ],
+      includeShared: true
+    },
+    [ROLE_CATEGORIES.SPECIAL_MEETING]: {
+      roles: [
+        'Workshop Facilitator', 'Panel Moderator', 'Keynote Speaker',
+        'Roundtable Leader', 'Networking Coordinator'
+      ],
+      includeShared: true
+    },
+    [ROLE_CATEGORIES.CONTEST_MEETING]: {
+      roles: [
+        'Contestant', 'Ballot Counter', 'Chief Judge', 'Tie-Breaking Judge',
+        'Tally Counter', 'SAA'
+      ],
+      includeShared: true
+    },
+    [ROLE_CATEGORIES.REGULAR_AND_SPECIAL]: {
+      roles: ['Speaker'],
+      includeShared: true
+    }
+  };
+
+  // Assign default category to roles
+  const getDefaultCategory = (roleName) => {
+    // Check if role is in any specific category
+    for (const [category, data] of Object.entries(ROLE_CATEGORY_MAP)) {
+      if (data.roles && data.roles.includes(roleName)) {
+        return category;
+      }
+    }
+    // If not found in any specific category, check if it's a shared role
+    if (ROLE_CATEGORY_MAP[ROLE_CATEGORIES.ALL].sharedRoles.includes(roleName)) {
+      return ROLE_CATEGORIES.ALL; // Shared roles are available in all categories
+    }
+    // Default to Regular Meeting if no category found
+    return ROLE_CATEGORIES.REGULAR_MEETING;
+  };
+
   const fetchRoles = async () => {
     try {
       const response = await roleService.getAllRoles();
-      console.log("Fetched roles data:", response.data.data); // Debug log
-      console.log("Sample role structure:", response.data.data[0]); // Debug log
-      const rolesData = response.data.data || [];
+      console.log("Full API response:", response);
+      
+      // Initialize ROLE_CATEGORY_MAP.ALL.roles if it's empty
+      if (ROLE_CATEGORY_MAP[ROLE_CATEGORIES.ALL].roles.length === 0) {
+        ROLE_CATEGORY_MAP[ROLE_CATEGORIES.ALL].roles = [
+          ...new Set([
+            ...ROLE_CATEGORY_MAP[ROLE_CATEGORIES.REGULAR_MEETING].roles,
+            ...ROLE_CATEGORY_MAP[ROLE_CATEGORIES.SPECIAL_MEETING].roles,
+            ...ROLE_CATEGORY_MAP[ROLE_CATEGORIES.CONTEST_MEETING].roles,
+            ...ROLE_CATEGORY_MAP[ROLE_CATEGORIES.ALL].sharedRoles
+          ])
+        ];
+      }
+      
+      // Process roles to ensure they have a category
+      const rolesData = (response.data.data || []).map(role => ({
+        ...role,
+        roleCategory: role.roleCategory || getDefaultCategory(role.roleName)
+      }));
+      
+      console.log("Processed roles data:", rolesData);
       setRoles(rolesData);
     } catch (error) {
       console.error("Error fetching roles:", error);
@@ -28,34 +97,50 @@ function RolesTable() {
   };
 
   useEffect(() => {
-    // Only filter if we have roles data loaded
-    if (roles.length > 0) {
-      console.log("Filtering roles by category:", selectedCategory, "Total roles:", roles.length);
-      
-      if (selectedCategory === 'ALL') {
-        setFilteredRoles(roles);
-      } else {
-        const filtered = roles.filter(role => {
-          // Handle roles with category field
-          if (role.category) {
-            // If it's a shared role, show it for all categories
-            if (role.category === ROLE_CATEGORIES.SHARED_ALL_MEETINGS) {
-              return true;
-            }
-            // Otherwise, show only if category matches
-            return role.category === selectedCategory;
-          }
-          // Handle roles without category (legacy data)
-          return selectedCategory === 'ALL';
-        });
-        console.log("Filtered roles count:", filtered.length);
-        setFilteredRoles(filtered);
-      }
-    } else {
-      // If no roles data yet, show empty array and don't log
+    if (roles.length === 0) {
+      console.log('No roles available to filter');
       setFilteredRoles([]);
+      return;
     }
-  }, [roles, selectedCategory]);
+
+    console.log('=== ROLE FILTERING DEBUG ===');
+    console.log('Selected category:', selectedCategory || 'ALL');
+    console.log('Available roles:', roles);
+    
+    let filtered = [];
+    
+    if (!selectedCategory || selectedCategory === ROLE_CATEGORIES.ALL) {
+      // Show all roles that exist in the system
+      filtered = [...roles];
+      console.log('Showing all roles');
+    } else {
+      const categoryData = ROLE_CATEGORY_MAP[selectedCategory];
+      if (!categoryData) {
+        console.log('Unknown category selected');
+        setFilteredRoles([]);
+        return;
+      }
+      
+      const { roles: categoryRoles, includeShared } = categoryData;
+      const sharedRoles = ROLE_CATEGORY_MAP[ROLE_CATEGORIES.ALL].sharedRoles;
+      
+      // For Regular + Special, only show Speaker role
+      if (selectedCategory === ROLE_CATEGORIES.REGULAR_AND_SPECIAL) {
+        filtered = roles.filter(role => role.roleName === 'Speaker');
+      } else {
+        // For other categories, include category-specific roles and shared roles if enabled
+        filtered = roles.filter(role => {
+          const isInCategory = categoryRoles.includes(role.roleName);
+          const isShared = includeShared && sharedRoles.includes(role.roleName);
+          return isInCategory || isShared;
+        });
+      }
+      
+      console.log(`Filtered roles for ${selectedCategory}:`, filtered);
+    }
+    
+    setFilteredRoles(filtered);
+  }, [selectedCategory, roles]);
 
   const handleCategoryChange = (category) => {
     setSelectedCategory(category);
@@ -101,7 +186,7 @@ function RolesTable() {
               value={selectedCategory} 
               onChange={(e) => handleCategoryChange(e.target.value)}
             >
-              <option value="ALL">All Categories</option>
+              <option value={ROLE_CATEGORIES.ALL}>All Categories</option>
               {Object.entries(ROLE_CATEGORY_LABELS).map(([key, label]) => (
                 <option key={key} value={key}>{label}</option>
               ))}
