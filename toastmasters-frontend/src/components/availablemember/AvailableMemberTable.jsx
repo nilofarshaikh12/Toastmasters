@@ -78,9 +78,16 @@ function AvailableMembersTable() {
       );
       const assignedRolesResults = await Promise.all(assignedRolesPromises);
       
+      // Debug: Log the structure of assigned roles
+      console.log('Assigned roles results:', assignedRolesResults);
+      if (assignedRolesResults.length > 0 && assignedRolesResults[0].data) {
+        console.log('First assigned role item:', assignedRolesResults[0].data[0]);
+      }
+      
       const assignedRolesMap = assignedRolesResults.reduce((acc, res) => {
         if (res.data && res.data.length > 0) {
           res.data.forEach(role => {
+            console.log('Processing role:', role); // Debug log
             if (!acc[role.meetingId]) {
               acc[role.meetingId] = {};
             }
@@ -92,6 +99,8 @@ function AvailableMembersTable() {
         }
         return acc;
       }, {});
+      
+      console.log('Assigned roles map:', assignedRolesMap); // Debug log
       setAssignedRoles(assignedRolesMap);
 
       // Fetch role history for all members - handle empty database gracefully
@@ -256,9 +265,43 @@ function AvailableMembersTable() {
         const errorMessage = error.response?.data?.message || error.message || 'An unknown error occurred';
         console.log('Error message to check:', errorMessage);
         
+        // Check if this is a role already assigned in last 3 meetings error
+        if (errorMessage.toLowerCase().includes('role already assigned in last 3 meetings')) {
+          // Get member and role names for better error message
+          const memberName = getMemberName(payload.memberId);
+          const role = allRoles.find(r => r.roleId === payload.roleId || r.roleId === `R${payload.roleId}` || r.roleId === parseInt(payload.roleId?.replace('R', '')));
+          const roleName = role?.roleName || 'the selected role';
+          
+          // Show confirmation dialog for role already assigned
+          const result = await Swal.fire({
+            title: 'Role Recently Assigned',
+            html: `This role (${roleName}) was already performed by ${memberName} in the past 3 meetings.<br><br>Do you still want to assign this role?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Yes, assign anyway',
+            cancelButtonText: 'No, cancel',
+            reverseButtons: true
+          });
+
+          if (result.isConfirmed) {
+            try {
+              // Try again with forceAssign set to true
+              const updatedPayload = { ...payload, forceAssign: true };
+              await assignedRoleService.assignRole(updatedPayload);
+              Swal.fire("Success", "Role assigned successfully!", "success");
+              fetchData();
+            } catch (retryError) {
+              const retryErrorMessage = retryError.response?.data?.message || retryError.message || 'Failed to assign role';
+              Swal.fire("Error", retryErrorMessage, "error");
+            }
+            return;
+          }
+        }
         // Check if this is a past meeting error
-        if (errorMessage.toLowerCase().includes('past meeting') || 
-            errorMessage.toLowerCase().includes('forceassign')) {
+        else if (errorMessage.toLowerCase().includes('past meeting') || 
+                errorMessage.toLowerCase().includes('forceassign')) {
           // Get member and role names for better error message
           const memberName = getMemberName(payload.memberId);
           // Find role by ID (handling both string and numeric IDs)
@@ -331,14 +374,14 @@ function AvailableMembersTable() {
   };
   
   const getMemberName = (memberId) => {
-    const member = members.find((m) => m.memberId === memberId);
-    return member ? member.memberName : "Unknown Member";
+    const member = members.find(m => m.memberId === memberId);
+    return member ? member.memberName : 'Unknown Member';
   };
 
   const getRoleName = (roleId) => {
-      const role = allRoles.find((r) => r.roleId === roleId);
-      return role ? role.roleName : "Unknown Role";
-  }
+    const role = allRoles.find(r => r.roleId === roleId);
+    return role ? role.roleName : 'Unknown Role';
+  };
 
   // Helper function to get applicable roles for a meeting
   const getApplicableRolesForMeeting = (meetingId) => {
@@ -355,6 +398,49 @@ function AvailableMembersTable() {
       return applicableCategories.includes(role.category) || 
              role.category === ROLE_CATEGORIES.SHARED_ALL_MEETINGS;
     });
+  };
+
+  const handleDeleteAssignedRole = async (assignedRole, memberId, roleName) => {
+    console.log('Deleting assigned role:', assignedRole);
+    console.log('All keys in assignedRole:', Object.keys(assignedRole));
+    
+    const result = await Swal.fire({
+      title: 'Remove Assigned Role',
+      text: `Are you sure you want to remove ${roleName} from this member?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, remove it',
+      cancelButtonText: 'No, keep it',
+      reverseButtons: true
+    });
+
+    if (result.isConfirmed) {
+      try {
+        // Try all possible ID properties
+        const assignmentId = assignedRole.assignedRoleId || 
+                           assignedRole.id || 
+                           assignedRole.assignmentId ||
+                           assignedRole.assignedRoleID;
+        
+        console.log('Attempting to delete with ID:', assignmentId);
+        
+        if (!assignmentId) {
+          const errorMsg = `No valid assignment ID found in role object. Available keys: ${Object.keys(assignedRole).join(', ')}`;
+          console.error(errorMsg);
+          throw new Error(errorMsg);
+        }
+        
+        console.log(`Calling delete API with URL: http://localhost:8080/assigned_roles/${assignmentId}`);
+        await assignedRoleService.deleteAssignedRole(assignmentId);
+        Swal.fire('Deleted!', 'The role assignment has been removed.', 'success');
+        fetchData();
+      } catch (error) {
+        console.error('Error deleting assigned role:', error);
+        Swal.fire('Error', `Failed to remove the role assignment: ${error.message}`, 'error');
+      }
+    }
   };
 
   return (
@@ -496,8 +582,21 @@ function AvailableMembersTable() {
                               ? (
                                   <div>
                                     {assigned.map((role, index) => (
-                                      <div key={index}>
-                                        {role.roleName}
+                                      <div key={index} className="d-flex justify-content-between align-items-center">
+                                        <span>{role.roleName}</span>
+                                        {isVPEducation && (
+                                          <button 
+                                            className="btn btn-sm btn-outline-danger ms-2 p-0"
+                                            style={{ width: '24px', height: '24px' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDeleteAssignedRole(role, am.memberId, role.roleName);
+                                            }}
+                                            title="Remove role"
+                                          >
+                                            <i className="bi bi-trash" style={{ fontSize: '0.75rem' }}></i>
+                                          </button>
+                                        )}
                                       </div>
                                     ))}
                                   </div>

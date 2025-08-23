@@ -166,6 +166,31 @@ const AssignRolesForm = () => {
     return [...preferredRoles, ...otherRoles];
   };
 
+  const handleDeleteAssignedRole = async (assignmentId, memberId, roleName) => {
+    const result = await Swal.fire({
+      title: 'Remove Assigned Role',
+      text: `Are you sure you want to remove ${roleName} from this member?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, remove it',
+      cancelButtonText: 'No, keep it',
+      reverseButtons: true
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await assignedRoleService.deleteAssignedRole(assignmentId);
+        Swal.fire('Deleted!', 'The role assignment has been removed.', 'success');
+        fetchData(); // Refresh the data
+      } catch (error) {
+        console.error('Error deleting assigned role:', error);
+        Swal.fire('Error', 'Failed to remove the role assignment. Please try again.', 'error');
+      }
+    }
+  };
+
   const handleAssignRole = async (memberId, roleId) => {
     if (!roleId) {
       Swal.fire("Warning", "Please select a role to assign.", "warning");
@@ -177,6 +202,29 @@ const AssignRolesForm = () => {
     if (!role) {
       Swal.fire("Error", "Invalid role selected.", "error");
       return;
+    }
+
+    // Check if member had this role in the past 3 meetings
+    const memberHistoryData = memberHistory[memberId] || [];
+    const hadRoleRecently = memberHistoryData.some(h => h.roleId === roleId);
+    
+    if (hadRoleRecently) {
+      // Show confirmation dialog if member had this role in the past 3 meetings
+      const result = await Swal.fire({
+        title: 'Role Assignment Warning',
+        html: `This role (${role.roleName}) was already performed by this member in the past 3 meetings.<br><br>Do you still want to assign this role?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, assign anyway',
+        cancelButtonText: 'No, cancel',
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        reverseButtons: true
+      });
+
+      if (!result.isConfirmed) {
+        return; // User cancelled the assignment
+      }
     }
 
     // Check if this role is already assigned to another member
@@ -286,8 +334,20 @@ const AssignRolesForm = () => {
                       ? (
                           <div>
                             {assignedRolesList.map((role, index) => (
-                              <div key={index}>
-                                {role.roleName}
+                              <div key={role.assignmentId} className="d-flex justify-content-between align-items-center">
+                                <span>{role.roleName}</span>
+                                {isVPEducation && (
+                                  <button 
+                                    className="btn btn-sm btn-outline-danger ms-2"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteAssignedRole(role.assignmentId, am.memberId, role.roleName);
+                                    }}
+                                    title="Remove role"
+                                  >
+                                    <i className="bi bi-trash"></i>
+                                  </button>
+                                )}
                               </div>
                             ))}
                           </div>

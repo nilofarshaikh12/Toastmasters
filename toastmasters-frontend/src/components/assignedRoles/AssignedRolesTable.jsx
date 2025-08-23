@@ -24,16 +24,24 @@ const AssignedRolesTable = () => {
         meetingService.getMeetingById(meetingId)
       ]);
       
-      // Group roles by member to show member name only once
+      // Group roles by member with role details
       const groupedRoles = assignedRolesRes.data.reduce((acc, role) => {
         const existingMember = acc.find(member => member.memberId === role.memberId);
         if (existingMember) {
-          existingMember.roles.push(role.roleName);
+          existingMember.roles.push({
+            id: role.id,
+            name: role.roleName,
+            assignmentId: role.id
+          });
         } else {
           acc.push({
             memberId: role.memberId,
             memberName: role.memberName,
-            roles: [role.roleName]
+            roles: [{
+              id: role.roleId,
+              name: role.roleName,
+              assignmentId: role.id
+            }]
           });
         }
         return acc;
@@ -44,6 +52,31 @@ const AssignedRolesTable = () => {
     } catch (error) {
       console.error("Error fetching assigned roles:", error);
       Swal.fire("Error", "Failed to fetch assigned roles.", "error");
+    }
+  };
+
+  const handleDeleteRole = async (assignmentId, roleName) => {
+    const result = await Swal.fire({
+      title: 'Remove Assigned Role',
+      text: `Are you sure you want to remove ${roleName}?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, remove it!',
+      cancelButtonText: 'No, keep it',
+      reverseButtons: true
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await assignedRoleService.deleteAssignedRole(assignmentId);
+        Swal.fire('Deleted!', 'The role assignment has been removed.', 'success');
+        fetchAssignedRoles(); // Refresh the list
+      } catch (error) {
+        console.error('Error deleting assigned role:', error);
+        Swal.fire('Error', 'Failed to remove the role assignment. Please try again.', 'error');
+      }
     }
   };
 
@@ -67,7 +100,28 @@ const AssignedRolesTable = () => {
             assignedRoles.map((member) => (
               <tr key={member.memberId}>
                 <td>{member.memberName}</td>
-                <td>{member.roles.join(", ")}</td>
+                <td>
+                  <div className="d-flex flex-wrap gap-2">
+                    {member.roles.map((role, index) => (
+                      <div key={`${member.memberId}-${role.id}-${index}`} className="d-flex align-items-center">
+                        <span className="me-1">{role.name}</span>
+                        {isVPEducation && (
+                          <button 
+                            className="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteRole(role.assignmentId, role.name);
+                            }}
+                            title="Remove role"
+                          >
+                            <i className="bi bi-trash" style={{ fontSize: '0.75rem' }}></i>
+                          </button>
+                        )}
+                        {index < member.roles.length - 1 && <span className="mx-1">,</span>}
+                      </div>
+                    ))}
+                  </div>
+                </td>
               </tr>
             ))
           ) : (

@@ -29,7 +29,15 @@ const assignedRoleService = {
   getAvailableRolesForMeeting: (meetingId) => {
     return axios.get(`${API_BASE_URL}/available-roles/meeting/${meetingId}`);
   },
-  // Add other methods like deleting/updating assigned roles if needed
+  deleteAssignedRole: async (assignmentId) => {
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/${assignmentId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting assigned role:', error);
+      throw error;
+    }
+  }
 };
 
 export default assignedRoleService;
