@@ -37,9 +37,11 @@ function AvailableMemberForm() {
           apiService.getMembers(),
           roleService.getAllRoles(),
         ]);
-        setMeetings(meetingsRes.data.data);
-        setMembers(membersRes.data.data);
-        setRoles(rolesRes.data.data);
+        // Meetings and members still use axios response shape
+        setMeetings(meetingsRes?.data?.data || []);
+        setMembers(membersRes?.data?.data || []);
+        // Roles service returns an array directly
+        setRoles(Array.isArray(rolesRes) ? rolesRes : (rolesRes?.data?.data || []));
 
         // If in edit mode, fetch existing data and override
         if (id) {
@@ -72,11 +74,8 @@ function AvailableMemberForm() {
         
         // Filter roles to show only those applicable to this meeting type
         const filtered = roles.filter(role => {
-          // Only include roles that have a category and match the meeting type or are shared
-          return role.category && (
-            applicableCategories.includes(role.category) || 
-            role.category === ROLE_CATEGORIES.SHARED_ALL_MEETINGS
-          );
+          const cat = role?.category || role?.roleCategory || '';
+          return cat && applicableCategories.includes(cat);
         });
         
         console.log("Available roles for this meeting:", filtered.length);
