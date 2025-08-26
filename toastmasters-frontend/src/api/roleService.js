@@ -18,8 +18,12 @@ const roleService = {
   getAllRoles: async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/getRoles`);
-      console.log('Roles API Response:', response.data);
-      return response.data?.data ?? [];
+
+      // ✅ Always log the full backend response for debugging
+      console.log('Roles API Raw Response:', JSON.stringify(response.data, null, 2));
+
+      // ✅ Extract roles safely from "data"
+      return Array.isArray(response.data?.data) ? response.data.data : [];
     } catch (error) {
       console.error('Error fetching roles:', error.response ? error.response.data : error.message);
       return [];
@@ -30,7 +34,7 @@ const roleService = {
   getRolesByCategory: async (category) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/getRolesByCategory/${category}`);
-      return response.data?.data ?? [];
+      return Array.isArray(response.data?.data) ? response.data.data : [];
     } catch (error) {
       console.error('Error fetching roles by category:', error.response ? error.response.data : error.message);
       return [];
@@ -74,7 +78,7 @@ const roleService = {
   getRolesForMeetingCategory: async (meetingCategory) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/getRolesForMeeting/${meetingCategory}`);
-      return response.data?.data ?? [];
+      return Array.isArray(response.data?.data) ? response.data.data : [];
     } catch (error) {
       console.error('Error fetching roles for meeting category:', error.response ? error.response.data : error.message);
       return [];
