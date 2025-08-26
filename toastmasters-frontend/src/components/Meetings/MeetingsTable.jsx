@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import meetingService from "../../api/meetingservice.js";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -22,6 +22,8 @@ function MeetingsTable() {
   }
   
   const { isVPEducation } = auth;
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchMeetings();
@@ -401,8 +403,14 @@ function MeetingsTable() {
                 status: status
               });
 
+              const onRowClick = () => navigate(`/meetings/${meeting.meetingId}`);
               return (
-                <tr key={meeting.meetingId}>
+                <tr 
+                  key={meeting.meetingId}
+                  onClick={onRowClick}
+                  style={{ cursor: 'pointer' }}
+                  className="align-middle"
+                >
                   <td>{meeting.meetingId}</td>
                   <td>{meeting.date || "N/A"}</td>
                   <td>{meeting.startTime || "N/A"}</td>
@@ -415,7 +423,7 @@ function MeetingsTable() {
                     </span>
                   </td>
                   {isVPEducation && (
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <Link
                         to={`/meetings/edit/${meeting.meetingId}`}
                         className="btn btn-primary btn-sm me-2"
@@ -424,7 +432,7 @@ function MeetingsTable() {
                       </Link>
                       <button
                         className="btn btn-danger btn-sm"
-                        onClick={() => deleteMeeting(meeting.meetingId)}
+                        onClick={(e) => { e.stopPropagation(); deleteMeeting(meeting.meetingId); }}
                       >
                         Delete
                       </button>
@@ -455,7 +463,7 @@ function MeetingsTable() {
                       <span className="text-muted fw-bold fs-6">🔴 Closed</span>
                     )}
                   </td>
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <div className="d-flex gap-2">
                       <Link to={`/assigned-roles/${meeting.meetingId}`} className="btn btn-outline-secondary btn-sm">
                         View

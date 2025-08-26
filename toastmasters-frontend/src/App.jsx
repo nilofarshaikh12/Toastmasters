@@ -32,6 +32,7 @@ import MemberForm from "./components/members/MemberForm";
 
 // Meetings components
 import MeetingsTable from "./components/Meetings/MeetingsTable"; 
+import MeetingDetails from "./components/Meetings/MeetingDetails";
 import MeetingForm from "./components/Meetings/MeetingForm"; 
 
 // Roles components
@@ -180,6 +181,7 @@ function App() {
                     <Route path="/meetings" element={<RequireAuth><MeetingsTable /></RequireAuth>} />
                     <Route path="/meetings/add" element={<RequireAuth><MeetingForm /></RequireAuth>} />
                     <Route path="/meetings/edit/:meetingId" element={<RequireAuth><MeetingForm /></RequireAuth>} />
+                    <Route path="/meetings/:meetingId" element={<RequireAuth><MeetingDetails /></RequireAuth>} />
 
                     {/* Roles Routes */}
                     <Route path="/roles" element={<RequireAuth><EnhancedRolesView /></RequireAuth>} />
