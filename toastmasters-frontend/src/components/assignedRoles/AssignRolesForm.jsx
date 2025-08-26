@@ -53,13 +53,18 @@ const AssignRolesForm = () => {
         ]);
 
       setMeeting(meetingRes.data.data);
-      setAvailableMembers(availableMembersRes.data);
+      // Only include members who are AVAILABLE
+      const normalizeStatus = (s) => String(s || '').toUpperCase();
+      const availableOnly = (availableMembersRes.data || []).filter(
+        (am) => normalizeStatus(am.availabilityStatus) === 'AVAILABLE'
+      );
+      setAvailableMembers(availableOnly);
       setAllRoles(allRolesRes.data.data);
 
       // Cache immutable preferences snapshot
       const prefMap = {};
       const displayMap = {};
-      (availableMembersRes.data || []).forEach((am) => {
+      (availableOnly || []).forEach((am) => {
         const key = String(am.memberId);
         const stored = localStorage.getItem(`tm_initial_prefs_${key}`);
         let prefs = [];
@@ -106,7 +111,7 @@ const AssignRolesForm = () => {
 
       // Member history (last 3 meetings)
       const historyResults = await Promise.all(
-        availableMembersRes.data.map(async (am) => {
+        availableOnly.map(async (am) => {
           const res = await assignedRoleService.getMemberRoleHistory(am.memberId);
           return { memberId: am.memberId, history: res.data };
         })

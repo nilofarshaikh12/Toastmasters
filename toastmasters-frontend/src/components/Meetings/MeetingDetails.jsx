@@ -4,6 +4,7 @@ import meetingService from "../../api/meetingservice";
 import availableMemberService from "../../api/availableMemberService";
 import assignedRoleService from "../../api/assignedRoleService";
 import apiService from "../../api/api.js";
+import { useAuth } from "../../context/AuthContext.jsx";
 
 const getMeetingStatus = (m) => {
   try {
@@ -71,6 +72,7 @@ const formatDateTime = (m) => {
 export default function MeetingDetails() {
   const { meetingId } = useParams();
   const navigate = useNavigate();
+  const { isVPEducation } = useAuth();
   const [meeting, setMeeting] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -306,6 +308,14 @@ export default function MeetingDetails() {
         <h3 className="fw-bold mb-0">Meeting Details</h3>
         <div className="d-flex gap-2">
           <Link className="btn btn-outline-secondary" to="/meetings">Back to Meetings</Link>
+          {isVPEducation && (
+            <Link
+              to={`/available-members?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`}
+              className="btn btn-success"
+            >
+              Assign Roles
+            </Link>
+          )}
           <Link to={`/available-members/add?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`} className="btn btn-primary">
             + Add Availability
           </Link>

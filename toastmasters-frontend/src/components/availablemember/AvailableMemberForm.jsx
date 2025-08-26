@@ -38,7 +38,30 @@ function AvailableMemberForm() {
           roleService.getAllRoles(),
         ]);
         // Meetings and members still use axios response shape
-        setMeetings(meetingsRes?.data?.data || []);
+        const meetingsData = meetingsRes?.data?.data || [];
+        // Keep only upcoming meetings and sort by start datetime DESC
+        const parseStart = (m) => {
+          try {
+            if (!m || !m.date || !m.startTime) return null;
+            if (String(m.date).includes('T')) return new Date(m.date);
+            const start = String(m.startTime);
+            const startFixed = start.includes(':') && start.split(':').length === 2 ? `${start}:00` : start;
+            const d = new Date(`${m.date}T${startFixed}`);
+            return isNaN(d.getTime()) ? null : d;
+          } catch { return null; }
+        };
+        const now = new Date();
+        const upcomingSorted = meetingsData
+          .filter(m => {
+            const s = parseStart(m);
+            return s && now < s;
+          })
+          .sort((a, b) => {
+            const sa = parseStart(a);
+            const sb = parseStart(b);
+            return (sb - sa); // DESC
+          });
+        setMeetings(upcomingSorted);
         setMembers(membersRes?.data?.data || []);
         // Roles service returns an array directly
         setRoles(Array.isArray(rolesRes) ? rolesRes : (rolesRes?.data?.data || []));
@@ -64,7 +87,7 @@ function AvailableMemberForm() {
   // Filter roles based on selected meeting category
   useEffect(() => {
     if (availableMember.meetingId && meetings.length > 0 && roles.length > 0) {
-      const selectedMeeting = meetings.find(m => m.meetingId === availableMember.meetingId);
+      const selectedMeeting = meetings.find(m => String(m.meetingId) === String(availableMember.meetingId));
       
       if (selectedMeeting && selectedMeeting.category) {
         console.log("Filtering roles for meeting category:", selectedMeeting.category);
@@ -153,7 +176,7 @@ function AvailableMemberForm() {
               className="form-control"
               id="meetingId"
               name="meetingId"
-              value={availableMember.meetingId}
+              value={String(availableMember.meetingId)}
               onChange={handleChange}
               required
               // Disable the select if a meetingId is already in the URL
@@ -161,7 +184,7 @@ function AvailableMemberForm() {
             >
               <option value="">Select a Meeting</option>
               {meetings.map((meeting) => (
-                <option key={meeting.meetingId} value={meeting.meetingId}>
+                <option key={meeting.meetingId} value={String(meeting.meetingId)}>
                   {meeting.date} - {meeting.theme}
                 </option>
               ))}

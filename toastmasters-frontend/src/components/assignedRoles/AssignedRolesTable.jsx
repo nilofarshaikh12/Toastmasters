@@ -84,9 +84,37 @@ const AssignedRolesTable = () => {
     <div className="container mt-4">
       <h2 className="fw-bold">Assigned Roles</h2>
       {meeting && (
-        <p className="text-muted">
-          Meeting: {meeting.date} - {meeting.theme}
-        </p>
+        <>
+          <p className="text-muted">
+            Meeting: {meeting.date} - {meeting.theme}
+          </p>
+          {(() => {
+            try {
+              const normalizeTime = (t) => {
+                if (!t) return t;
+                if (String(t).includes(':')) {
+                  const parts = String(t).split(':');
+                  return parts.length === 2 ? `${t}:00` : t;
+                }
+                return t;
+              };
+              let end;
+              if (String(meeting.date || '').includes('T')) {
+                end = new Date(meeting.date);
+              } else {
+                end = new Date(`${meeting.date}T${normalizeTime(meeting.endTime || '23:59:59')}`);
+              }
+              if (!isNaN(end.getTime()) && end < new Date()) {
+                return (
+                  <div className="alert alert-warning py-2" role="alert">
+                    This meeting has already occurred. Assigned roles are read-only.
+                  </div>
+                );
+              }
+            } catch {}
+            return null;
+          })()}
+        </>
       )}
       <table className="table table-striped table-hover table-bordered shadow-sm">
         <thead className="table-dark">
@@ -105,7 +133,26 @@ const AssignedRolesTable = () => {
                     {member.roles.map((role, index) => (
                       <div key={`${member.memberId}-${role.id}-${index}`} className="d-flex align-items-center">
                         <span className="me-1">{role.name}</span>
-                        {isVPEducation && (
+                        {isVPEducation && (() => {
+                          try {
+                            const normalizeTime = (t) => {
+                              if (!t) return t;
+                              if (String(t).includes(':')) {
+                                const parts = String(t).split(':');
+                                return parts.length === 2 ? `${t}:00` : t;
+                              }
+                              return t;
+                            };
+                            let end;
+                            if (String(meeting?.date || '').includes('T')) {
+                              end = new Date(meeting.date);
+                            } else {
+                              end = new Date(`${meeting?.date}T${normalizeTime(meeting?.endTime || '23:59:59')}`);
+                            }
+                            const isPast = meeting && !isNaN(end.getTime()) && end < new Date();
+                            return !isPast;
+                          } catch { return true; }
+                        })() && (
                           <button 
                             className="btn btn-sm btn-outline-danger py-0 px-1 ms-1"
                             onClick={(e) => {

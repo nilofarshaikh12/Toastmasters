@@ -39,14 +39,22 @@ function MeetingsTable() {
       console.log("Raw meetings data:", response.data);
       console.log("Meetings array:", response.data.data);
       const meetingsData = response.data.data || [];
-      // Sort meetings by date (newest first)
-      const sortedMeetings = meetingsData.sort((a, b) => {
+      // Sort meetings by start datetime DESC (most upcoming/recent first)
+      const sortedMeetings = meetingsData.slice().sort((a, b) => {
         try {
-          const dateA = new Date(a.date);
-          const dateB = new Date(b.date);
-          return dateA - dateB; // Ascending order (oldest first)
+          const parseStart = (m) => {
+            if (!m || !m.date || !m.startTime) return new Date(0);
+            if (String(m.date).includes('T')) return new Date(m.date);
+            const start = String(m.startTime);
+            const startFixed = start.includes(':') && start.split(':').length === 2 ? `${start}:00` : start;
+            const d = new Date(`${m.date}T${startFixed}`);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+          };
+          const aStart = parseStart(a);
+          const bStart = parseStart(b);
+          return bStart - aStart; // descending
         } catch (error) {
-          console.error("Error sorting meetings by date:", error);
+          console.error("Error sorting meetings by datetime:", error);
           return 0;
         }
       });

@@ -1,6 +1,6 @@
 // src/components/availablemember/AvailableMembersTable.jsx
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
 import availableMemberService from "../../api/availableMemberService.js";
 import meetingService from "../../api/meetingservice.js";
@@ -18,10 +18,17 @@ function AvailableMembersTable() {
   const { isVPEducation } = useAuth();
   const [assignedRoles, setAssignedRoles] = useState({});
   const [memberHistory, setMemberHistory] = useState({});
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const queryMeetingIdRaw = searchParams.get('meetingId');
+  const normalizeMid = (v) => String(v ?? '').trim().replace(/^M/i, '');
+  const queryMeetingId = queryMeetingIdRaw ? normalizeMid(queryMeetingIdRaw) : '';
+  const [infoBanner, setInfoBanner] = useState('');
+  const [selectedMeeting, setSelectedMeeting] = useState(null);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [location.search]);
 
   const fetchData = async () => {
     try {
@@ -56,23 +63,83 @@ function AvailableMembersTable() {
         roles: Array.isArray(allRolesData) ? allRolesData.length : 'n/a',
       });
       
-      // Sort meetings by date (oldest first)
-      const sortedMeetings = meetingsData.sort((a, b) => {
-        try {
-          const dateA = new Date(a.date);
-          const dateB = new Date(b.date);
-          return dateA - dateB; // Ascending order (oldest first)
-        } catch (error) {
-          console.error("Error sorting meetings by date:", error);
-          return 0;
+      // Filter to upcoming/ongoing meetings and sort by start datetime DESC (most upcoming first)
+      const normalizeTime = (t) => {
+        if (!t) return t;
+        if (t.includes(":")) {
+          const parts = t.split(":");
+          return parts.length === 2 ? `${t}:00` : t;
         }
-      });
-      setMeetings(sortedMeetings);
+        return t;
+      };
+
+      const getStartEnd = (m) => {
+        try {
+          if (!m || !m.date) return { start: new Date(NaN), end: new Date(NaN) };
+          if (String(m.date).includes("T")) {
+            const d = new Date(m.date);
+            return { start: d, end: d };
+          }
+          const start = new Date(`${m.date}T${normalizeTime(m.startTime || "00:00:00")}`);
+          const end = new Date(`${m.date}T${normalizeTime(m.endTime || "23:59:59")}`);
+          return { start, end };
+        } catch (e) {
+          console.warn("Failed to parse meeting times", e, m);
+          return { start: new Date(NaN), end: new Date(NaN) };
+        }
+      };
+
+      const now = new Date();
+      // If a meetingId is provided and it's a past meeting, we still want to show a banner.
+      let selectedMeetingFromAll = null;
+      if (queryMeetingId) {
+        selectedMeetingFromAll = (meetingsData || []).find(m => normalizeMid(m.meetingId) === queryMeetingId);
+      }
+
+      // Determine banner for past meeting selection and store selected meeting
+      setSelectedMeeting(selectedMeetingFromAll || null);
+      if (selectedMeetingFromAll) {
+        const { end } = getStartEnd(selectedMeetingFromAll);
+        if (!isNaN(end.getTime()) && end < now) {
+          setInfoBanner('This meeting has already occurred. You can review availability, but assigning roles to past meetings may be restricted.');
+        } else {
+          setInfoBanner('');
+        }
+      } else {
+        setInfoBanner('');
+      }
+
+      const upcomingMeetings = (meetingsData || [])
+        .filter((m) => {
+          const { end } = getStartEnd(m);
+          return !isNaN(end.getTime()) && end >= now; // upcoming or ongoing
+        })
+        .sort((a, b) => {
+          const { start: aStart } = getStartEnd(a);
+          const { start: bStart } = getStartEnd(b);
+          return bStart - aStart; // DESC
+        });
+
+      // Include selected past meeting if any
+      let meetingsToInclude = [...upcomingMeetings];
+      if (selectedMeetingFromAll) {
+        const { end } = getStartEnd(selectedMeetingFromAll);
+        const isPast = !isNaN(end.getTime()) && end < now;
+        if (isPast) {
+          const exists = meetingsToInclude.some(m => normalizeMid(m.meetingId) === normalizeMid(selectedMeetingFromAll.meetingId));
+          if (!exists) {
+            meetingsToInclude = [selectedMeetingFromAll, ...meetingsToInclude];
+          }
+        }
+      }
+
+      setMeetings(meetingsToInclude);
       setMembers(membersData);
       setAllRoles(allRolesData);
 
       const grouped = availableMembers.reduce((acc, am) => {
-        const meeting = meetingsData.find(m => m.meetingId === am.meetingId);
+        // Group against the meetings we decided to include (upcoming + selected past if any)
+        const meeting = meetingsToInclude.find(m => m.meetingId === am.meetingId);
         if (meeting) {
           if (!acc[meeting.meetingId]) {
             acc[meeting.meetingId] = {
@@ -459,15 +526,50 @@ function AvailableMembersTable() {
 
   return (
     <div className="container mt-4">
+      {/* Header actions when coming from a meeting */}
+      {(queryMeetingId || infoBanner) && (
+        <div className="d-flex justify-content-between align-items-center mb-3">
+          <div className="flex-grow-1">
+            {infoBanner && (
+              <div className="alert alert-warning mb-0" role="alert">
+                {infoBanner}
+              </div>
+            )}
+          </div>
+          {selectedMeeting && (
+            <div className="ms-3 d-flex gap-2">
+              <Link to={`/meetings/${selectedMeeting.meetingId}`} className="btn btn-outline-secondary btn-sm">
+                Back to Meeting
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
       {Object.keys(groupedAvailability).length > 0 ? (
         Object.keys(groupedAvailability)
+          // If meetingId is provided in query, only show that meeting group
+          .filter((key) => {
+            if (!queryMeetingId) return true;
+            const kNorm = normalizeMid(key);
+            return kNorm === queryMeetingId;
+          })
           .sort((a, b) => {
             try {
-              const meetingA = groupedAvailability[a].meeting;
-              const meetingB = groupedAvailability[b].meeting;
-              const dateA = new Date(meetingA.date);
-              const dateB = new Date(meetingB.date);
-              return dateA - dateB; // Ascending order (oldest first)
+              const ma = groupedAvailability[a].meeting;
+              const mb = groupedAvailability[b].meeting;
+              const { start: aStart } = (function(m){
+                if (!m || !m.date) return { start: new Date(NaN) };
+                if (String(m.date).includes('T')) return { start: new Date(m.date) };
+                const s = `${m.date}T${(m.startTime && m.startTime.includes(':') && m.startTime.split(':').length===2) ? m.startTime+':00' : (m.startTime || '00:00:00')}`;
+                return { start: new Date(s) };
+              })(ma);
+              const { start: bStart } = (function(m){
+                if (!m || !m.date) return { start: new Date(NaN) };
+                if (String(m.date).includes('T')) return { start: new Date(m.date) };
+                const s = `${m.date}T${(m.startTime && m.startTime.includes(':') && m.startTime.split(':').length===2) ? m.startTime+':00' : (m.startTime || '00:00:00')}`;
+                return { start: new Date(s) };
+              })(mb);
+              return bStart - aStart; // DESC
             } catch (error) {
               console.error("Error sorting grouped meetings:", error);
               return 0;
@@ -569,8 +671,20 @@ function AvailableMembersTable() {
                     </tr>
                   </thead>
                   <tbody>
-                    {groupedAvailability[currentMeetingId].members.map((am) => {
+                    {groupedAvailability[currentMeetingId].members
+                      .filter((am) => String(am.availabilityStatus || '').toUpperCase() === 'AVAILABLE')
+                      .map((am) => {
                       const assigned = assignedRoles[currentMeetingId]?.[am.memberId];
+                      const meetingForRow = groupedAvailability[currentMeetingId].meeting;
+                      const { end: rowEnd } = (function(m){
+                        try {
+                          if (!m || !m.date) return { end: new Date(NaN) };
+                          if (String(m.date).includes('T')) return { end: new Date(m.date) };
+                          const n = (t) => (t && t.includes(':') && t.split(':').length===2) ? t+':00' : (t || '23:59:59');
+                          return { end: new Date(`${m.date}T${n(m.endTime)}`) };
+                        } catch { return { end: new Date(NaN) } }
+                      })(meetingForRow);
+                      const isPastMeeting = !isNaN(rowEnd.getTime()) && rowEnd < new Date();
                       return (
                         <tr key={am.id}>
                           <td>{getMemberName(am.memberId)}</td>
@@ -598,7 +712,7 @@ function AvailableMembersTable() {
                                     {assigned.map((role, index) => (
                                       <div key={index} className="d-flex justify-content-between align-items-center">
                                         <span>{role.roleName}</span>
-                                        {isVPEducation && (
+                                        {isVPEducation && !isPastMeeting && (
                                           <button 
                                             className="btn btn-sm btn-outline-danger ms-2 p-0"
                                             style={{ width: '24px', height: '24px' }}
@@ -643,11 +757,12 @@ function AvailableMembersTable() {
                               <select
                                 className="form-select me-2"
                                 value=""
+                                disabled={isPastMeeting}
                                 onChange={(e) => {
                                   console.log("Dropdown changed - meetingId:", currentMeetingId, "memberId:", am.memberId, "roleId:", e.target.value);
                                   handleAssignRole(currentMeetingId, am.memberId, e.target.value);
                                 }}
-                              >
+                                >
                                 <option value="">Select a Role</option>
                                 {getApplicableRolesForMeeting(currentMeetingId).map((role) => (
                                   <option key={role.roleId} value={role.roleId}>
@@ -655,6 +770,9 @@ function AvailableMembersTable() {
                                   </option>
                                 ))}
                               </select>
+                              {isPastMeeting && (
+                                <small className="text-muted">Assignment disabled for past meetings.</small>
+                              )}
                             </td>
                           )}
                         </tr>
