@@ -37,10 +37,24 @@ function AvailableMembersTable() {
         roleService.getAllRoles(),
       ]);
 
-      const availableMembers = availableMembersRes.data;
-      const meetingsData = meetingsRes.data.data;
-      const membersData = membersRes.data.data;
-      const allRolesData = rolesRes.data.data;
+      // Normalize different API response shapes
+      const availableMembers =
+        availableMembersRes?.data?.data ?? availableMembersRes?.data ?? availableMembersRes ?? [];
+      const meetingsData =
+        meetingsRes?.data?.data ?? meetingsRes?.data ?? meetingsRes ?? [];
+      const membersData =
+        membersRes?.data?.data ?? membersRes?.data ?? membersRes ?? [];
+      // roleService.getAllRoles() already returns an array per implementation
+      const allRolesData = Array.isArray(rolesRes)
+        ? rolesRes
+        : (rolesRes?.data?.data ?? rolesRes?.data ?? rolesRes ?? []);
+
+      console.log('[AvailableMembers] Sizes:', {
+        availableMembers: Array.isArray(availableMembers) ? availableMembers.length : 'n/a',
+        meetings: Array.isArray(meetingsData) ? meetingsData.length : 'n/a',
+        members: Array.isArray(membersData) ? membersData.length : 'n/a',
+        roles: Array.isArray(allRolesData) ? allRolesData.length : 'n/a',
+      });
       
       // Sort meetings by date (oldest first)
       const sortedMeetings = meetingsData.sort((a, b) => {

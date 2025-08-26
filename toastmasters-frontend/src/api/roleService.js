@@ -3,21 +3,83 @@ import axios from 'axios';
 const API_BASE_URL = 'http://localhost:8080/roles';
 
 const roleService = {
-  
-  addRole: (role) => axios.post(`${API_BASE_URL}/addRoles`, role),
+  // Add a new role
+  addRole: async (role) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/addRoles`, role);
+      return response.data?.data ?? null;
+    } catch (error) {
+      console.error('Error adding role:', error.response ? error.response.data : error.message);
+      throw error;
+    }
+  },
 
-  getAllRoles: () => axios.get(`${API_BASE_URL}/getRoles`),
+  // Get all roles
+  getAllRoles: async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/getRoles`);
+      console.log('Roles API Response:', response.data);
+      return response.data?.data ?? [];
+    } catch (error) {
+      console.error('Error fetching roles:', error.response ? error.response.data : error.message);
+      return [];
+    }
+  },
 
-  getRolesByCategory: (category) => axios.get(`${API_BASE_URL}/getRolesByCategory/${category}`),
+  // Get roles by category
+  getRolesByCategory: async (category) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/getRolesByCategory/${category}`);
+      return response.data?.data ?? [];
+    } catch (error) {
+      console.error('Error fetching roles by category:', error.response ? error.response.data : error.message);
+      return [];
+    }
+  },
 
-  getRoleById: (roleId) => axios.get(`${API_BASE_URL}/getRoleById/${roleId}`),
+  // Get role by ID
+  getRoleById: async (roleId) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/getRoleById/${roleId}`);
+      return response.data?.data ?? null;
+    } catch (error) {
+      console.error('Error fetching role by ID:', error.response ? error.response.data : error.message);
+      return null;
+    }
+  },
 
-  updateRole: (roleId, role) => axios.patch(`${API_BASE_URL}/updateRole/${roleId}`, role),
+  // Update role
+  updateRole: async (roleId, role) => {
+    try {
+      const response = await axios.patch(`${API_BASE_URL}/updateRole/${roleId}`, role);
+      return response.data?.data ?? null;
+    } catch (error) {
+      console.error('Error updating role:', error.response ? error.response.data : error.message);
+      throw error;
+    }
+  },
 
-  deleteRole: (roleId) => axios.delete(`${API_BASE_URL}/deleteRole/${roleId}`),
+  // Delete role
+  deleteRole: async (roleId) => {
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/deleteRole/${roleId}`);
+      return response.data?.data ?? null;
+    } catch (error) {
+      console.error('Error deleting role:', error.response ? error.response.data : error.message);
+      throw error;
+    }
+  },
 
-  // Get roles that are applicable for a specific meeting category
-  getRolesForMeetingCategory: (meetingCategory) => axios.get(`${API_BASE_URL}/getRolesForMeeting/${meetingCategory}`),
+  // Get roles for a specific meeting category
+  getRolesForMeetingCategory: async (meetingCategory) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/getRolesForMeeting/${meetingCategory}`);
+      return response.data?.data ?? [];
+    } catch (error) {
+      console.error('Error fetching roles for meeting category:', error.response ? error.response.data : error.message);
+      return [];
+    }
+  },
 };
 
 export default roleService;

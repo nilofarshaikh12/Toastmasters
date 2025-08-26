@@ -12,19 +12,27 @@ function RoleForm() {
     roleName: "",
     roleDescription: "",
     rolePlayerDocument: "",
-    category: ROLE_CATEGORIES.SHARED,
+    category: "", // empty represents None in the form
   });
 
   useEffect(() => {
     if (roleId) {
       const fetchRole = async () => {
         try {
-          const response = await roleService.getRoleById(roleId);
-          const roleData = response.data.data;
-          console.log("Fetched role for editing:", roleData); // Debug log
+          const roleData = await roleService.getRoleById(roleId); // returns role object or null
+          if (!roleData) {
+            console.warn("Role not found for id:", roleId);
+            return;
+          }
+          console.log("Fetched role for editing:", roleData);
+          // Normalize and enforce Speaker category
+          const isSpeaker = String(roleData.roleName || '').toLowerCase() === 'speaker';
           setRole({
-            ...roleData,
-            category: roleData.category || ROLE_CATEGORIES.SHARED // Ensure category is set
+            roleName: roleData.roleName || "",
+            roleDescription: roleData.roleDescription || "",
+            rolePlayerDocument: roleData.rolePlayerDocument || "",
+            // preserve None if backend has null/undefined/""
+            category: isSpeaker ? ROLE_CATEGORIES.REGULAR_AND_SPECIAL : (roleData.category ?? "")
           });
         } catch (error) {
           console.error("Error fetching role for edit:", error);
@@ -36,21 +44,25 @@ function RoleForm() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setRole((prevRole) => ({
-      ...prevRole,
-      [name]: value,
-    }));
+    setRole((prevRole) => {
+      const next = { ...prevRole, [name]: value };
+      // If name is set to Speaker, auto-set category to REGULAR_AND_SPECIAL
+      if (name === 'roleName' && String(value).toLowerCase() === 'speaker') {
+        next.category = ROLE_CATEGORIES.REGULAR_AND_SPECIAL;
+      }
+      return next;
+    });
   };
 
   const generateRoleId = async () => {
     try {
       const response = await roleService.getAllRoles();
-      const existingRoles = response.data.data || [];
+      const existingRoles = Array.isArray(response) ? response : [];
       
       // Extract numeric parts from existing role IDs (R1, R2, etc.)
       const existingNumbers = existingRoles
         .map(role => {
-          const match = role.roleId.match(/^R(\d+)$/);
+          const match = String(role.roleId || '').match(/^R(\d+)$/);
           return match ? parseInt(match[1]) : 0;
         })
         .filter(num => num > 0);
@@ -69,6 +81,14 @@ function RoleForm() {
     e.preventDefault();
     try {
       let roleData = { ...role };
+      // Enforce Speaker category before saving
+      if (String(roleData.roleName || '').toLowerCase() === 'speaker') {
+        roleData.category = ROLE_CATEGORIES.REGULAR_AND_SPECIAL;
+      }
+      // Convert None (empty string) to null for backend
+      if (roleData.category === '') {
+        roleData.category = null;
+      }
       
       if (roleId) {
         // Editing existing role
@@ -111,7 +131,8 @@ function RoleForm() {
           </div>
           <div className="col-md-6">
             <label htmlFor="category" className="form-label">Meeting Category</label>
-            <select className="form-control" id="category" name="category" value={role.category} onChange={handleChange} required>
+            <select className="form-control" id="category" name="category" value={role.category} onChange={handleChange}>
+              <option value="">None</option>
               {Object.entries(ROLE_CATEGORY_LABELS).map(([key, label]) => (
                 <option key={key} value={key}>{label}</option>
               ))}
