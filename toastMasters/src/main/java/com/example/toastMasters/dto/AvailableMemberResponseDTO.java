@@ -5,7 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import java.util.Set;
+import java.util.List;
 
 @Setter
 @Getter
@@ -16,5 +16,5 @@ public class AvailableMemberResponseDTO {
     private String meetingId;
     private Integer memberId;
     private AvailabilityStatus availabilityStatus;
-    private Set<RoleResponseDTOForAvailable> preferredRoles;
+    private List<RoleResponseDTOForAvailable> preferredRoles;
 }

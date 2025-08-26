@@ -62,4 +62,19 @@ public class AssignedRoleController {
 
         return ResponseEntity.ok(responseList);
     }
+
+    @DeleteMapping("/{assignedRoleId}")
+    public ResponseEntity<?> deleteAssignedRole(@PathVariable("assignedRoleId") Long assignedRoleId) {
+        try {
+            boolean deleted = assignedRoleService.deleteAssignedRole(assignedRoleId);
+            if (deleted) {
+                return ResponseEntity.ok().build();
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "Failed to delete assigned role: " + e.getMessage()));
+        }
+    }
 }

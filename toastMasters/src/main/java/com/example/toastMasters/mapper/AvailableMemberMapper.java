@@ -11,8 +11,8 @@ import com.example.toastMasters.repositories.RolesRepository;
 import org.mapstruct.Context;
 import org.mapstruct.Mapper;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 @Mapper(componentModel = "spring")
 public interface AvailableMemberMapper {
@@ -26,7 +26,7 @@ public interface AvailableMemberMapper {
         availableMember.setMember(member);
         availableMember.setAvailabilityStatus(dto.getAvailabilityStatus());
 
-        // Map role IDs to entities
+        // Map role IDs to entities in list
         availableMember.setPreferredRoles(mapRoleIdsToEntities(dto.getPreferredRoleIds(), roleRepository));
 
         return availableMember;
@@ -46,15 +46,11 @@ public interface AvailableMemberMapper {
         // Map meeting ID
         if (availableMember.getMeeting() != null) {
             dto.setMeetingId(availableMember.getMeeting().getMeetingId());
-        } else {
-            dto.setMeetingId(null);
         }
 
         // Map member ID
         if (availableMember.getMember() != null) {
             dto.setMemberId(availableMember.getMember().getMemberId());
-        } else {
-            dto.setMemberId(null);
         }
 
         // Map availability status
@@ -66,9 +62,9 @@ public interface AvailableMemberMapper {
         return dto;
     }
 
-    // Map role IDs from request DTO to Roles entities
-    default Set<Roles> mapRoleIdsToEntities(Set<String> roleIds, @Context RolesRepository roleRepository) {
-        Set<Roles> roles = new HashSet<>();
+    // Map role IDs from request DTO to Roles entities (maintain order)
+    default List<Roles> mapRoleIdsToEntities(List<String> roleIds, @Context RolesRepository roleRepository) {
+        List<Roles> roles = new ArrayList<>();
         if (roleIds != null) {
             for (String roleId : roleIds) {
                 Roles role = roleRepository.findById(roleId).orElse(null);
@@ -82,9 +78,9 @@ public interface AvailableMemberMapper {
         return roles;
     }
 
-    // Map Roles entities to RoleResponseDTOForAvailable
-    default Set<RoleResponseDTOForAvailable> mapRolesToRoleResponseDTOs(Set<Roles> roles) {
-        Set<RoleResponseDTOForAvailable> dtos = new HashSet<>();
+    // Map Roles entities to RoleResponseDTOForAvailable (keep order)
+    default List<RoleResponseDTOForAvailable> mapRolesToRoleResponseDTOs(List<Roles> roles) {
+        List<RoleResponseDTOForAvailable> dtos = new ArrayList<>();
         if (roles != null) {
             for (Roles role : roles) {
                 RoleResponseDTOForAvailable dto = new RoleResponseDTOForAvailable();

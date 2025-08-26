@@ -10,4 +10,5 @@ public interface AssignedRoleService {
     List<AssignedRoleResponseDTO> getRolesByMeeting(String meetingId);
     List<AssignedRoleResponseDTO> getMemberRoleHistory(int memberId);
     boolean isMeetingInPast(String meetingId);
+    boolean deleteAssignedRole(Long assignedRoleId);
 }

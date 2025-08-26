@@ -36,18 +36,19 @@ public class AvailableMemberServiceImpl implements AvailableMemberService {
 
     @Override
     public AvailableMemberResponseDTO addAvailableMember(AvailableMemberRequestDTO requestDTO) {
-        Meeting meeting = meetingRepository.findById(requestDTO.getMeetingId()).orElse(null);
-        if (meeting == null) {
-            throw new RuntimeException("Meeting not found with ID: " + requestDTO.getMeetingId());
-        }
+        Meeting meeting = meetingRepository.findById(requestDTO.getMeetingId())
+                .orElseThrow(() -> new RuntimeException("Meeting not found with ID: " + requestDTO.getMeetingId()));
 
-        Member member = memberRepository.findById(requestDTO.getMemberId()).orElse(null);
-        if (member == null) {
-            throw new RuntimeException("Member not found with ID: " + requestDTO.getMemberId());
-        }
+        Member member = memberRepository.findById(requestDTO.getMemberId())
+                .orElseThrow(() -> new RuntimeException("Member not found with ID: " + requestDTO.getMemberId()));
 
         AvailableMember availableMember = availableMemberMapper
                 .toEntity(requestDTO, meeting, member, rolesRepository);
+
+        // Save ordered preferred roles
+        availableMember.setPreferredRoles(
+                availableMemberMapper.mapRoleIdsToEntities(requestDTO.getPreferredRoleIds(), rolesRepository)
+        );
 
         availableMember = availableMemberRepository.save(availableMember);
 
@@ -67,24 +68,20 @@ public class AvailableMemberServiceImpl implements AvailableMemberService {
 
     @Override
     public AvailableMemberResponseDTO updateAvailableMember(Long id, AvailableMemberRequestDTO requestDTO) {
-        AvailableMember availableMember = availableMemberRepository.findById(id).orElse(null);
-        if (availableMember == null) {
-            throw new RuntimeException("AvailableMember not found with ID: " + id);
-        }
+        AvailableMember availableMember = availableMemberRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("AvailableMember not found with ID: " + id));
 
-        Meeting meeting = meetingRepository.findById(requestDTO.getMeetingId()).orElse(null);
-        if (meeting == null) {
-            throw new RuntimeException("Meeting not found with ID: " + requestDTO.getMeetingId());
-        }
+        Meeting meeting = meetingRepository.findById(requestDTO.getMeetingId())
+                .orElseThrow(() -> new RuntimeException("Meeting not found with ID: " + requestDTO.getMeetingId()));
 
-        Member member = memberRepository.findById(requestDTO.getMemberId()).orElse(null);
-        if (member == null) {
-            throw new RuntimeException("Member not found with ID: " + requestDTO.getMemberId());
-        }
+        Member member = memberRepository.findById(requestDTO.getMemberId())
+                .orElseThrow(() -> new RuntimeException("Member not found with ID: " + requestDTO.getMemberId()));
 
         availableMember.setMeeting(meeting);
         availableMember.setMember(member);
         availableMember.setAvailabilityStatus(requestDTO.getAvailabilityStatus());
+
+        // Preserve order from requestDTO
         availableMember.setPreferredRoles(
                 availableMemberMapper.mapRoleIdsToEntities(requestDTO.getPreferredRoleIds(), rolesRepository)
         );
@@ -96,10 +93,9 @@ public class AvailableMemberServiceImpl implements AvailableMemberService {
 
     @Override
     public void deleteAvailableMember(Long id) {
-        AvailableMember availableMember = availableMemberRepository.findById(id).orElse(null);
-        if (availableMember == null) {
-            throw new RuntimeException("AvailableMember not found with ID: " + id);
-        }
+        AvailableMember availableMember = availableMemberRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("AvailableMember not found with ID: " + id));
+
         availableMemberRepository.delete(availableMember);
     }
 }

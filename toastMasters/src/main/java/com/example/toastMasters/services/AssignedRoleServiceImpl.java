@@ -99,6 +99,19 @@ public class AssignedRoleServiceImpl implements AssignedRoleService {
         return meeting != null && isMeetingInPast(meeting);
     }
 
+    @Override
+    public boolean deleteAssignedRole(Long assignedRoleId) {
+        if (assignedRoleId == null) {
+            return false;
+        }
+        try {
+            assignedRoleRepository.deleteById(assignedRoleId);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private boolean isMeetingInPast(Meeting meeting) {
         if (meeting == null || meeting.getDate() == null) {
             return false;

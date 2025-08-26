@@ -6,9 +6,9 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import java.util.ArrayList;
+import java.util.List;
 
-import java.util.HashSet;
-import java.util.Set;
 
 @Entity
 @Getter
@@ -38,5 +38,5 @@ public class AvailableMember {
             joinColumns = @JoinColumn(name = "available_member_id"),
             inverseJoinColumns = @JoinColumn(name = "role_id")
     )
-    private Set<Roles> preferredRoles = new HashSet<>();
+    private List<Roles> preferredRoles = new ArrayList<>();
 }
