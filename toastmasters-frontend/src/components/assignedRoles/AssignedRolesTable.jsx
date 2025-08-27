@@ -1,7 +1,7 @@
 // src/components/assignedRoles/AssignedRolesTable.jsx
 
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import assignedRoleService from "../../api/assignedRoleService.js";
 import meetingService from "../../api/meetingservice.js";
@@ -9,6 +9,7 @@ import { useAuth } from "../../context/AuthContext.jsx";
 
 const AssignedRolesTable = () => {
   const { meetingId } = useParams();
+  const navigate = useNavigate();
   const [assignedRoles, setAssignedRoles] = useState([]);
   const [meeting, setMeeting] = useState(null);
   const { isVPEducation } = useAuth();
@@ -82,7 +83,16 @@ const AssignedRolesTable = () => {
 
   return (
     <div className="container mt-4">
-      <h2 className="fw-bold">Assigned Roles</h2>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h2 className="fw-bold mb-0">Assigned Roles</h2>
+        <button 
+          className="btn btn-outline-secondary btn-sm"
+          onClick={() => navigate(`/meetings/${meetingId}`)}
+          title="Back to meeting details"
+        >
+          <i className="bi bi-arrow-left me-1"></i> Back to Meeting
+        </button>
+      </div>
       {meeting && (
         <>
           <p className="text-muted">

@@ -21,6 +21,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Close';
 import { useNavigate, useLocation } from 'react-router-dom';
 import roleService from '../../api/roleService';
+import { useAuth } from '../../context/AuthContext';
 import {
   MEETING_CATEGORIES,
   MEETING_CATEGORY_LABELS,
@@ -51,6 +52,7 @@ const EnhancedRolesViewClean = () => {
   const [selectedFilter, setSelectedFilter] = useState('NONE');
   const [search, setSearch] = useState('');
   const [sortAsc, setSortAsc] = useState(true);
+  const { isVPEducation } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const stickyHeaderOffset = 72;
@@ -263,6 +265,7 @@ const EnhancedRolesViewClean = () => {
             >
               Sort: {sortAsc ? 'A→Z' : 'Z→A'}
             </Button>
+            {isVPEducation && (
             <Button
               variant="contained"
               color="success"
@@ -272,7 +275,8 @@ const EnhancedRolesViewClean = () => {
             >
               Add Role
             </Button>
-            <Button
+          )}
+          <Button
               variant="outlined"
               size="small"
               startIcon={<RefreshIcon />}
