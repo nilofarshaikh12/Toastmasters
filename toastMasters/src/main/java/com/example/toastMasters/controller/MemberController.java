@@ -54,4 +54,13 @@ public class MemberController {
         ResponseMessage<Void> response=new ResponseMessage<>(MemberConstants.MEMBER_DELETED, HttpStatus.OK.value());
         return new ResponseEntity<>(response, HttpStatus.OK);
     }
+
+    @PostMapping("/login")
+    public ResponseEntity<ResponseMessage<MemberResponseDTO>> login(@RequestParam String email, @RequestParam String password) {
+        MemberResponseDTO member = memberService.login(email, password);
+        ResponseMessage<MemberResponseDTO> response =
+                new ResponseMessage<>("Login successful", HttpStatus.OK.value(), member);
+        return new ResponseEntity<>(response, HttpStatus.OK);
+    }
+
 }

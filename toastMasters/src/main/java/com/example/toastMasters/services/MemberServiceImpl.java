@@ -106,4 +106,14 @@ public class MemberServiceImpl implements MemberService {
         member.setDeleted(true);
         memberRepository.save(member);
     }
+
+    @Override
+    public MemberResponseDTO login(String email, String password) {
+        Member member = memberRepository.findByEmailAndDeletedFalse(email);
+        if (member == null || !member.getPassword().equals(password)) {
+            throw new MemberNotFoundException("Invalid email or password");
+        }
+        return memberMapper.toResponseDTO(member);
+    }
+
 }

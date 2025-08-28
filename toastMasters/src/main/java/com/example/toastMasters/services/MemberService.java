@@ -17,4 +17,6 @@ public interface MemberService {
     MemberResponseDTO updateMember(Integer memberId, MemberRequestDTO memberRequestDTO);
 
     void deleteMember(Integer memberId);
+
+    MemberResponseDTO login(String email, String password);
 }
