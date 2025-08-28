@@ -34,13 +34,18 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => setUser(null);
 
-  const value = useMemo(() => ({
-    user,
-    login,
-    logout,
-    isVPEducation: user?.role === "VP_EDUCATION",
-    isMember: user?.role === "MEMBER",
-  }), [user]);
+  const value = useMemo(() => {
+    // Normalize the role by converting to uppercase and replacing spaces with underscores
+    const normalizedRole = user?.role ? user.role.toString().toUpperCase().replace(/\s+/g, '_') : '';
+    
+    return {
+      user,
+      login,
+      logout,
+      isVPEducation: normalizedRole === 'VP_EDUCATION',
+      isMember: normalizedRole === 'MEMBER',
+    };
+  }, [user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

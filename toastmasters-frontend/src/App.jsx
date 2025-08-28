@@ -25,6 +25,10 @@ import { AuthProvider } from "./context/AuthContext.jsx";
 import RequireAuth from "./components/auth/RequireAuth.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 
+// Dashboard components
+import MemberDashboard from "./components/dashboard/MemberDashboard";
+import VPEducationDashboard from "./components/dashboard/VPEducationDashboard";
+
 // Member components
 import MemberTable from "./components/members/MemberTable";
 import MemberDetails from "./components/members/MemberDetails";
@@ -49,97 +53,11 @@ import AssignedRolesTable from "./components/assignedRoles/AssignedRolesTable";
 
 const Home = () => {
   const { isVPEducation } = useAuth();
-  return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ 
-        bgcolor: 'primary.main', 
-        color: 'primary.contrastText',
-        p: 4,
-        borderRadius: 2,
-        mb: 4,
-        background: 'linear-gradient(135deg, #2E3B55 0%, #1a237e 100%)',
-      }}>
-        <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 700 }}>
-          Welcome to Toastmasters Club
-        </Typography>
-        <Typography variant="subtitle1" sx={{ opacity: 0.9, maxWidth: '800px' }}>
-          Plan meetings, manage members, set availability, and assign roles smoothly with our comprehensive Toastmasters management system.
-        </Typography>
-      </Box>
-
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <CardContent sx={{ flexGrow: 1 }}>
-              <Typography variant="h6" component="h2" gutterBottom>
-                <Box component="span" sx={{ color: 'primary.main' }}>Meetings</Box>
-              </Typography>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                View all meetings with live status: Upcoming, Ongoing, or Closed.
-              </Typography>
-            </CardContent>
-            <CardActions sx={{ p: 2 }}>
-              <Button 
-                component={RouterLink} 
-                to="/meetings" 
-                variant="contained" 
-                color="primary"
-                fullWidth
-              >
-                Go to Meetings
-              </Button>
-            </CardActions>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <CardContent sx={{ flexGrow: 1 }}>
-              <Typography variant="h6" component="h2" gutterBottom>
-                <Box component="span" sx={{ color: 'primary.main' }}>Members</Box>
-              </Typography>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                Manage club members, view details, and track their progress.
-              </Typography>
-            </CardContent>
-            <CardActions sx={{ p: 2 }}>
-              <Button 
-                component={RouterLink} 
-                to="/members" 
-                variant="contained" 
-                color="primary"
-                fullWidth
-              >
-                View Members
-              </Button>
-            </CardActions>
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <CardContent sx={{ flexGrow: 1 }}>
-              <Typography variant="h6" component="h2" gutterBottom>
-                <Box component="span" sx={{ color: 'primary.main' }}>Roles</Box>
-              </Typography>
-              <Typography variant="body1" color="text.secondary" paragraph>
-                Assign and manage meeting roles for each session.
-              </Typography>
-            </CardContent>
-            <CardActions sx={{ p: 2 }}>
-              <Button 
-                component={RouterLink} 
-                to="/roles" 
-                variant="contained" 
-                color="primary"
-                fullWidth
-              >
-                Manage Roles
-              </Button>
-            </CardActions>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
-  );
+  
+  if (isVPEducation) {
+    return <VPEducationDashboard />;
+  }
+  return <MemberDashboard />;
 };
 
 function App() {
@@ -169,6 +87,22 @@ function App() {
                       element={
                         <RequireAuth>
                           <Home />
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/member-dashboard"
+                      element={
+                        <RequireAuth>
+                          <MemberDashboard />
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/vp-dashboard"
+                      element={
+                        <RequireAuth>
+                          <VPEducationDashboard />
                         </RequireAuth>
                       }
                     />

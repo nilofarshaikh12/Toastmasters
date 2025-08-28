@@ -145,9 +145,14 @@ function AvailableMemberForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Disable preferred roles for 'UNAVAILABLE' or 'TENTATIVE' status
+    const shouldDisableRoles = ['UNAVAILABLE', 'TENTATIVE'].includes(availableMember.availabilityStatus);
+    
     const payload = {
       ...availableMember,
-      preferredRoleIds: Array.from(availableMember.preferredRoleIds),
+      // Clear preferred roles if status is 'UNAVAILABLE' or 'TENTATIVE'
+      preferredRoleIds: shouldDisableRoles ? [] : Array.from(availableMember.preferredRoleIds),
     };
 
     try {
@@ -225,7 +230,7 @@ function AvailableMemberForm() {
           </div>
           <div className="col-md-12">
             <label className="form-label">
-              Preferred Roles (Select up to 3)
+              Preferred Roles {['UNAVAILABLE', 'TENTATIVE'].includes(availableMember.availabilityStatus) ? '' : '(Select up to 3)'}
               {availableMember.meetingId && meetings.find(m => m.meetingId === availableMember.meetingId) && (
                 <small className="text-muted ms-2">
                   - Showing roles for {meetings.find(m => m.meetingId === availableMember.meetingId)?.category || 'this meeting type'}
@@ -243,7 +248,9 @@ function AvailableMemberForm() {
                       id={`role-${role.roleId}`}
                       checked={availableMember.preferredRoleIds.has(role.roleId)}
                       onChange={handleRoleChange}
-                      disabled={availableMember.preferredRoleIds.size >= 3 && !availableMember.preferredRoleIds.has(role.roleId)}
+                      disabled={['UNAVAILABLE', 'TENTATIVE'].includes(availableMember.availabilityStatus) || 
+                               (availableMember.preferredRoleIds.size >= 3 && 
+                                !availableMember.preferredRoleIds.has(role.roleId))}
                     />
                     <label className="form-check-label" htmlFor={`role-${role.roleId}`}>
                       {role.roleName}
