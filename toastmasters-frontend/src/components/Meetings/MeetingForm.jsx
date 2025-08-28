@@ -4,6 +4,7 @@ import Swal from "sweetalert2";
 import meetingService from "../../api/meetingservice.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { MEETING_CATEGORIES, MEETING_CATEGORY_LABELS } from "../../constants/meetingCategories.js";
+import MeetingRoleAssignment from "./MeetingRoleAssignment";
 
 // Helper to format date for input
 const formatDate = (dateString) => {
@@ -16,6 +17,58 @@ function MeetingForm() {
   const navigate = useNavigate();
   const { isVPEducation } = useAuth();
 
+  // Function to get next Saturday from a given date
+  const getNextSaturday = (fromDate) => {
+    const date = new Date(fromDate);
+    const day = date.getDay();
+    // Calculate days until next Saturday (6 is Saturday)
+    const daysUntilSaturday = day <= 6 ? 6 - day : 6 + 7 - day;
+    date.setDate(date.getDate() + daysUntilSaturday + (daysUntilSaturday === 0 ? 7 : 0));
+    return date.toISOString().split('T')[0];
+  };
+
+  // Fetch the last meeting date when component mounts
+  useEffect(() => {
+    const fetchLastMeeting = async () => {
+      try {
+        const response = await meetingService.getAllMeetings();
+        const meetings = response.data.data || [];
+        if (meetings.length > 0) {
+          // Sort meetings by date in descending order
+          const sortedMeetings = [...meetings].sort((a, b) => 
+            new Date(b.date) - new Date(a.date)
+          );
+          const lastMeetingDate = sortedMeetings[0].date;
+          
+          // Update the meeting state with the next Saturday after last meeting
+          setMeeting(prev => ({
+            ...prev,
+            date: getNextSaturday(lastMeetingDate),
+            startTime: isVPEducation ? "17:30" : "",
+            endTime: isVPEducation ? "19:30" : "",
+            venue: isVPEducation ? "Community Hall, Pimpri" : ""
+          }));
+        } else {
+          // If no meetings exist, use next Saturday from today
+          const today = new Date();
+          setMeeting(prev => ({
+            ...prev,
+            date: getNextSaturday(today),
+            startTime: isVPEducation ? "17:30" : "",
+            endTime: isVPEducation ? "19:30" : "",
+            venue: isVPEducation ? "Community Hall, Pimpri" : ""
+          }));
+        }
+      } catch (error) {
+        console.error("Error fetching meetings:", error);
+      }
+    };
+
+    if (isVPEducation && !meetingId) {
+      fetchLastMeeting();
+    }
+  }, [isVPEducation, meetingId]);
+
   const [meeting, setMeeting] = useState({
     date: "",
     startTime: "",
@@ -23,7 +76,24 @@ function MeetingForm() {
     theme: "",
     venue: "",
     category: MEETING_CATEGORIES.REGULAR,
+    roles: []
   });
+
+  const handleRolesUpdate = (roles) => {
+    // Ensure we have proper role objects
+    const updatedRoles = Array.isArray(roles) 
+      ? roles.map(role => ({
+          roleId: role.roleId || role.id,
+          roleName: role.roleName || role.name || 'Unnamed Role',
+          isCustom: role.isCustom || (role.roleId && role.roleId.startsWith('custom_'))
+        }))
+      : [];
+    
+    setMeeting(prev => ({
+      ...prev,
+      roles: updatedRoles
+    }));
+  };
 
   useEffect(() => {
     if (meetingId) {
@@ -35,6 +105,7 @@ function MeetingForm() {
             ...meetingData,
             date: formatDate(meetingData.date),
             category: meetingData.category || MEETING_CATEGORIES.REGULAR,
+            roles: meetingData.roles || [],
           });
         } catch (error) {
           console.error("Error fetching meeting for edit:", error);
@@ -54,18 +125,31 @@ function MeetingForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
     try {
+      // Prepare meeting data with proper role objects
+      const meetingData = {
+        ...meeting,
+        roles: Array.isArray(meeting.roles) 
+          ? meeting.roles.map(role => ({
+              roleId: role.roleId,
+              roleName: role.roleName,
+              isCustom: role.isCustom || false
+            }))
+          : []
+      };
+
       if (meetingId) {
-        await meetingService.updateMeeting(meetingId, meeting);
-        Swal.fire("Success", "Meeting updated successfully!", "success");
+        await meetingService.updateMeeting(meetingId, meetingData);
+        Swal.fire("Success!", "Meeting updated successfully!", "success");
       } else {
-        await meetingService.addMeeting(meeting);
-        Swal.fire("Success", "Meeting added successfully!", "success");
+        await meetingService.addMeeting(meetingData);
+        Swal.fire("Success!", "Meeting created successfully!", "success");
       }
       navigate("/meetings");
     } catch (error) {
-      console.error("Error saving meeting:", error.response?.data || error.message);
-      Swal.fire("Error", "Failed to save meeting. Please try again.", "error");
+      console.error("Error saving meeting:", error);
+      Swal.fire("Error!", "Failed to save meeting. Please try again.", "error");
     }
   };
 
@@ -119,6 +203,19 @@ function MeetingForm() {
             Cancel
           </button>
         </div>
+
+        {/* Role Assignment Section */}
+        {isVPEducation && (
+          <div className="mt-4">
+            <h4>Assign Meeting Roles</h4>
+            <MeetingRoleAssignment 
+              key={meeting.category} // Force re-render when category changes
+              meetingCategory={meeting.category}
+              onRolesUpdate={handleRolesUpdate}
+              initialRoles={meeting.roles || []}
+            />
+          </div>
+        )}
       </form>
     </div>
   );
