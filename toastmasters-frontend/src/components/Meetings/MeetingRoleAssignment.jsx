@@ -19,14 +19,18 @@ import {
   Tooltip
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import CloseIcon from '@mui/icons-material/Close';
 import roleService from '../../api/roleservice';
 
 const MeetingRoleAssignment = ({ meetingCategory, onRolesUpdate, initialRoles = [] }) => {
   const [openAddRoleDialog, setOpenAddRoleDialog] = useState(false);
+  const [openInstanceDialog, setOpenInstanceDialog] = useState(false);
+  const [instanceCount, setInstanceCount] = useState(1);
+  const [roleForInstances, setRoleForInstances] = useState(null);
   const [newRoleName, setNewRoleName] = useState('');
   const [newRoleDescription, setNewRoleDescription] = useState('');
   const [availableRoles, setAvailableRoles] = useState([]);
-  const [selectedRoleId, setSelectedRoleId] = useState('');
+  const [selectedRole, setSelectedRole] = useState('');
   const [assignedRoles, setAssignedRoles] = useState(initialRoles || []);
 
   // Handle initial roles
@@ -43,6 +47,12 @@ const MeetingRoleAssignment = ({ meetingCategory, onRolesUpdate, initialRoles = 
       setAssignedRoles([]);
     }
   }, [initialRoles]);
+
+  // Reset assigned roles when meeting category changes
+  useEffect(() => {
+    setAssignedRoles([]);
+    onRolesUpdate([]);
+  }, [meetingCategory]);
 
   // Fetch and filter roles based on meeting category
   useEffect(() => {
@@ -75,20 +85,58 @@ const MeetingRoleAssignment = ({ meetingCategory, onRolesUpdate, initialRoles = 
             return meetingCategory === 'SHARED_ALL_MEETINGS';
           }
           
-          const category = (role.category || '').toUpperCase().trim();
-          const meetingCat = (meetingCategory || '').toUpperCase().trim();
+          // Normalize category values for comparison
+          const category = (role.category || '').toString().toUpperCase().trim();
+          const meetingCat = (meetingCategory || '').toString().toUpperCase().replace('_MEETING', '');
           
-          console.log(`Checking role ${role.roleName} (${category}) for meeting type: ${meetingCat}`);
+          console.log('Role details:', {
+            roleName: role.roleName,
+            roleCategory: category,
+            meetingCategory: meetingCat,
+            isCustom: role.isCustom
+          });
           
-          if (meetingCat === 'REGULAR') {
-            return category === 'SHARED_ALL_MEETINGS' || 
-                   category === 'REGULAR_AND_SPECIAL_MEETINGS';
-          } else if (meetingCat === 'CONTEST') {
-            return category === 'CONTEST_MEETING_ONLY' || 
-                   category === 'SHARED_ALL_MEETINGS';
-          } else {
-            return category === 'SHARED_ALL_MEETINGS';
-          }
+          // Define role category mappings
+          const roleCategories = {
+            // Contest Meeting Roles
+            'CONTEST': ['CONTEST_MEETING_ONLY', 'CONTEST', 'CONTEST_MEETING'],
+            'CONTESTANT': ['CONTEST_MEETING_ONLY', 'CONTEST', 'CONTEST_MEETING'],
+            'BALLOT_COUNTER': ['CONTEST_MEETING_ONLY', 'CONTEST', 'CONTEST_MEETING'],
+            'JUDGE': ['CONTEST_MEETING_ONLY', 'CONTEST', 'CONTEST_MEETING'],
+            
+            // Regular Meeting Roles
+            'SPEAKER': ['REGULAR_AND_SPECIAL_MEETINGS', 'REGULAR', 'REGULAR_MEETING'],
+            'EVALUATOR': ['REGULAR_AND_SPECIAL_MEETINGS', 'REGULAR', 'REGULAR_MEETING'],
+            'TABLE_TOPICS_MASTER': ['REGULAR_AND_SPECIAL_MEETINGS', 'REGULAR', 'REGULAR_MEETING'],
+            'GENERAL_EVALUATOR': ['REGULAR_AND_SPECIAL_MEETINGS', 'REGULAR', 'REGULAR_MEETING'],
+            
+            // Shared Roles (appear in all meeting types)
+            'TIMER': ['SHARED_ALL_MEETINGS'],
+            'GRAMMARIAN': ['SHARED_ALL_MEETINGS'],
+            'AH_COUNTER': ['SHARED_ALL_MEETINGS'],
+            'TOASTMASTER': ['SHARED_ALL_MEETINGS'],
+            'TOM': ['SHARED_ALL_MEETINGS'],
+            'SERGEANT_AT_ARMS': ['SHARED_ALL_MEETINGS']
+          };
+          
+          // Check if role matches the meeting type
+          const roleName = role.roleName.toUpperCase().replace(/\s+/g, '_');
+          const roleCategory = roleCategories[roleName] || [];
+          
+          // Check if role is allowed for this meeting type
+          const isMatch = roleCategory.some(cat => {
+            if (meetingCat === 'REGULAR') {
+              return cat.includes('REGULAR') || cat === 'SHARED_ALL_MEETINGS';
+            } else if (meetingCat === 'CONTEST') {
+              return cat.includes('CONTEST') || cat === 'SHARED_ALL_MEETINGS';
+            } else if (meetingCat === 'SPECIAL') {
+              return cat.includes('SPECIAL') || cat === 'SHARED_ALL_MEETINGS' || cat.includes('REGULAR');
+            }
+            return cat === 'SHARED_ALL_MEETINGS';
+          });
+          
+          console.log(`Role ${role.roleName} (${category}) for ${meetingCat}: ${isMatch ? 'MATCH' : 'NO MATCH'}`);
+          return isMatch || category === 'SHARED_ALL_MEETINGS';
         });
         
         console.log('Filtered roles for', meetingCategory, ':', filteredRoles);
@@ -103,12 +151,74 @@ const MeetingRoleAssignment = ({ meetingCategory, onRolesUpdate, initialRoles = 
     fetchRoles();
   }, [meetingCategory]);
 
+  const handleRemoveRole = (roleId) => {
+    // Get the base role ID (without instance number)
+    const roleParts = roleId.split('_');
+    const baseRoleId = roleParts[0]; // Just get the role ID part (e.g., 'R9' from 'R9_1')
+    const isInstanceRole = roleParts.length > 1;
+    
+    // Remove the role
+    const updatedRoles = assignedRoles.filter(role => role.roleId !== roleId);
+    
+    if (isInstanceRole) {
+      // Get the original role from availableRoles to maintain role details
+      const originalRole = availableRoles.find(r => r.roleId === baseRoleId);
+      
+      if (originalRole) {
+        // Get all instances of this role and sort them by instance number
+        const roleInstances = updatedRoles
+          .filter(role => {
+            const currentBaseId = role.roleId.split('_')[0];
+            return currentBaseId === baseRoleId;
+          })
+          .sort((a, b) => {
+            const aNum = parseInt(a.roleId.split('_')[1] || '0', 10);
+            const bNum = parseInt(b.roleId.split('_')[1] || '0', 10);
+            return aNum - bNum;
+          });
+        
+        // Rename remaining instances to maintain sequential numbering starting from 1
+        const renumberedRoles = updatedRoles.map(role => {
+          const currentBaseId = role.roleId.split('_')[0];
+          if (currentBaseId === baseRoleId) {
+            const instanceIndex = roleInstances.findIndex(r => r.roleId === role.roleId);
+            if (instanceIndex >= 0) {
+              const newInstanceNum = instanceIndex + 1;
+              const newRoleId = `${baseRoleId}_${newInstanceNum}`;
+              return {
+                ...role,
+                roleId: newRoleId,
+                roleName: `${originalRole.roleName} ${newInstanceNum}`,
+                instanceNumber: newInstanceNum
+              };
+            }
+          }
+          return role;
+        });
+        
+        setAssignedRoles(renumberedRoles);
+        onRolesUpdate(renumberedRoles);
+        return;
+      }
+    }
+    
+    // For non-instance roles or if original role not found, just update the state
+    setAssignedRoles(updatedRoles);
+    onRolesUpdate(updatedRoles);
+  };
+
   const handleAddCustomRole = async (e) => {
     e?.preventDefault();
     e?.stopPropagation();
     
     const trimmedName = newRoleName.trim();
     if (!trimmedName) return;
+    
+    // Ensure we have a valid meeting category
+    if (!meetingCategory) {
+      alert('Please select a meeting category first');
+      return;
+    }
     
     try {
       // Check if a role with this name already exists
@@ -117,13 +227,14 @@ const MeetingRoleAssignment = ({ meetingCategory, onRolesUpdate, initialRoles = 
         return;
       }
 
-      const newRole = {
-        roleId: `custom_${Date.now()}`,
-        roleName: trimmedName,
-        roleDescription: newRoleDescription.trim(),
-        isCustom: true,
-        category: meetingCategory || 'CUSTOM'
-      };
+        const newRole = {
+          roleId: `custom_${Date.now()}`,
+          roleName: trimmedName,
+          roleDescription: newRoleDescription.trim(),
+          isCustom: true,
+          category: meetingCategory.toUpperCase(),
+          meetingSpecific: true
+        };
       
       // Add to available roles first
       setAvailableRoles(prev => [...prev, newRole]);
@@ -138,7 +249,6 @@ const MeetingRoleAssignment = ({ meetingCategory, onRolesUpdate, initialRoles = 
       // Reset and close
       setNewRoleName('');
       setNewRoleDescription('');
-      setSelectedRoleId('');
       setOpenAddRoleDialog(false);
     } catch (error) {
       console.error('Error adding custom role:', error);
@@ -147,116 +257,205 @@ const MeetingRoleAssignment = ({ meetingCategory, onRolesUpdate, initialRoles = 
   };
 
   const handleAddRole = (e) => {
-    e?.preventDefault();
-    if (!selectedRoleId) return;
+    e.preventDefault();
+    if (!selectedRole) return;
+
+    const roleKey = selectedRole.roleName.toUpperCase().replace(/\s+/g, '_');
+    const meetingType = meetingCategory.toUpperCase();
     
-    const roleToAdd = availableRoles.find(r => r.roleId === selectedRoleId);
-    if (roleToAdd) {
-      // Check if role is already assigned
-      if (assignedRoles.some(r => r.roleId === selectedRoleId)) {
-        return; // Don't add duplicate roles
-      }
-      
-      const newAssignedRoles = [...assignedRoles, roleToAdd];
-      setAssignedRoles(newAssignedRoles);
-      // Pass full role objects to parent
-      onRolesUpdate(newAssignedRoles);
-      setSelectedRoleId('');
+    // Define which roles should have instances based on meeting type
+    const regularMeetingMultiInstance = ['SPEAKER', 'EVALUATOR'];
+    const contestMeetingMultiInstance = ['TIMER', 'BALLOT_COUNTER', 'CONTESTANT', 'EVALUATOR'];
+    const specialMeetingMultiInstance = ['SPEAKER', 'EVALUATOR'];
+    
+    // Check if the role should have multiple instances based on meeting type
+    let shouldHaveInstances = false;
+    
+    if (meetingType === 'REGULAR_MEETING' && regularMeetingMultiInstance.includes(roleKey)) {
+      shouldHaveInstances = true;
+    } else if (meetingType === 'CONTEST_MEETING' && contestMeetingMultiInstance.includes(roleKey)) {
+      shouldHaveInstances = true;
+    } else if (meetingType === 'SPECIAL_MEETING' && specialMeetingMultiInstance.includes(roleKey)) {
+      shouldHaveInstances = true;
     }
+    
+    if (shouldHaveInstances) {
+      setRoleForInstances(selectedRole);
+      setOpenInstanceDialog(true);
+    } else {
+      // For single-instance roles
+      addRoleInstances(selectedRole, 1);
+    }
+    setSelectedRole('');
   };
 
-  const handleRemoveRole = (roleIdToRemove) => {
-    const newAssignedRoles = assignedRoles.filter(role => role.roleId !== roleIdToRemove);
+  const addRoleInstances = (role, count) => {
+    const newInstances = [];
+    const existingInstances = assignedRoles.filter(r => r.roleId.startsWith(role.roleId));
+    const startIndex = existingInstances.length + 1;
+
+    for (let i = 0; i < count; i++) {
+      const instanceNum = startIndex + i;
+      newInstances.push({
+        ...role,
+        roleId: `${role.roleId}_${instanceNum}`,
+        roleName: `${role.roleName} ${instanceNum}`,
+        instanceNumber: instanceNum,
+        originalRoleId: role.roleId
+      });
+    }
+
+    const newAssignedRoles = [...assignedRoles, ...newInstances];
     setAssignedRoles(newAssignedRoles);
     // Update parent with full role objects
     onRolesUpdate(newAssignedRoles);
   };
 
+  // Get base roles (without instance numbers) to track which roles are already assigned
+  const getBaseRoleId = (roleId) => {
+    // For roles with instance numbers (e.g., 'R9_1' or 'TIMER_2'), get the base ID
+    const parts = roleId.split('_');
+    // If it's a role with an instance number (e.g., 'R9_1'), return just 'R9'
+    if (parts.length > 1 && !isNaN(parts[1])) {
+      return parts[0];
+    }
+    // Otherwise return the full ID (for non-instance roles)
+    return roleId;
+  };
+  
+  // Only consider a role fully assigned if it's not a multi-instance role or if it's a custom role
+  const isRoleAssigned = (role) => {
+    // Check if this is a multi-instance role that should allow multiple instances
+    const isMultiInstanceRole = ['SPEAKER', 'EVALUATOR', 'TIMER', 'BALLOT_COUNTER', 'CONTESTANT']
+      .some(roleType => role.roleName.toUpperCase().includes(roleType));
+    
+    // If it's a multi-instance role, it's never fully assigned (can always add more)
+    if (isMultiInstanceRole) {
+      return false;
+    }
+    
+    // For non-multi-instance roles, check if it's already assigned
+    const baseRoleId = getBaseRoleId(role.roleId);
+    return assignedRoles.some(r => getBaseRoleId(r.roleId) === baseRoleId);
+  };
+
   return (
-    <Paper elevation={2} sx={{ p: 3, mt: 3 }}>
+    <Paper elevation={2} sx={{ p: 3, mt: 3, width: '100%' }}>
       <Typography variant="h6" gutterBottom>
         Assign Meeting Roles
       </Typography>
       
-      <Grid container spacing={2} alignItems="center">
-        <Grid item xs={12} md={5}>
-          <FormControl fullWidth size="small">
+      {/* Instance Count Dialog */}
+      <Dialog open={openInstanceDialog} onClose={() => setOpenInstanceDialog(false)}>
+        <DialogTitle>Add Multiple {roleForInstances?.roleName} Roles</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Number of Instances"
+            type="number"
+            fullWidth
+            value={instanceCount}
+            onChange={(e) => setInstanceCount(Math.max(1, parseInt(e.target.value) || 1))}
+            inputProps={{ min: 1, max: 10 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenInstanceDialog(false)}>Cancel</Button>
+          <Button 
+            onClick={() => {
+              addRoleInstances(roleForInstances, instanceCount);
+              setOpenInstanceDialog(false);
+            }}
+            variant="contained"
+            color="primary"
+          >
+            Add {instanceCount} {instanceCount === 1 ? 'Instance' : 'Instances'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      <Box sx={{ width: '100%' }}>
+        <Box sx={{ 
+          display: 'grid',
+          gap: 2,
+          gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr' },
+          alignItems: 'center',
+          width: '100%'
+        }}>
+          <FormControl fullWidth margin="normal">
             <InputLabel>Select Role</InputLabel>
             <Select
-              value={selectedRoleId || ''}
-              label="Select Role"
-              onChange={(e) => setSelectedRoleId(e.target.value)}
-              displayEmpty
-              renderValue={(selected) => {
-                if (!selected) return <em>Select a role</em>;
-                const role = availableRoles.find(r => r.roleId === selected);
-                return role ? role.roleName : '';
+              value={selectedRole?.roleId || ''}
+              onChange={(e) => {
+                const role = availableRoles.find(r => r.roleId === e.target.value);
+                setSelectedRole(role || null);
               }}
+              label="Select Role"
             >
-              <MenuItem value="" disabled>
-                <em>Select a role</em>
-              </MenuItem>
-              {availableRoles.length > 0 ? (
-              availableRoles.map((role) => (
-                <MenuItem key={role.roleId} value={role.roleId}>
-                  {role.roleName} {role.isCustom && '(Custom)'}
-                </MenuItem>
-              ))
-            ) : (
-              <MenuItem disabled>No roles available for this meeting type</MenuItem>
-            )}
-              <MenuItem 
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setOpenAddRoleDialog(true);
-                }}
-                sx={{ display: 'flex', alignItems: 'center' }}
-              >
-                <AddCircleOutlineIcon sx={{ mr: 1 }} />
-                Add Custom Role
-              </MenuItem>
+              {availableRoles
+                .filter(role => !isRoleAssigned(role))
+                .map((role) => (
+                  <MenuItem key={role.roleId} value={role.roleId}>
+                    {role.roleName}
+                  </MenuItem>
+                ))}
             </Select>
           </FormControl>
-        </Grid>
+          
+          <Box sx={{ display: 'flex', gap: 2, width: '100%' }}>
+            <Button 
+              variant="contained" 
+              onClick={handleAddRole}
+              fullWidth
+              disabled={!selectedRole}
+              sx={{ flex: 2 }}
+            >
+              Add Role
+            </Button>
+            <Button 
+              variant="outlined" 
+              onClick={() => setOpenAddRoleDialog(true)}
+              startIcon={<AddCircleOutlineIcon />}
+              sx={{ flex: 1 }}
+            >
+              Custom
+            </Button>
+          </Box>
+        </Box>
         
-        <Grid item xs={12} md={2}>
-          <Button 
-            variant="contained" 
-            onClick={handleAddRole}
-            fullWidth
-            disabled={!selectedRoleId}
-          >
-            Add Role
-          </Button>
-        </Grid>
-        
-        <Grid item xs={12}>
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Assigned Roles:
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-              {assignedRoles.length > 0 ? (
-                assignedRoles.map((role) => (
-                  <Chip
-                    key={role.roleId}
+        <Box sx={{ mt: 2, width: '100%' }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Assigned Roles:
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            {assignedRoles.map((role) => (
+                  <Box key={role.roleId}>
+                    <Chip
                     label={role.roleName}
                     onDelete={() => handleRemoveRole(role.roleId)}
                     color="primary"
                     variant="outlined"
-                    sx={{ m: 0.5 }}
+                    deleteIcon={
+                      <Tooltip title="Remove role">
+                        <CloseIcon />
+                      </Tooltip>
+                    }
+                    sx={{
+                      '& .MuiChip-deleteIcon': {
+                        color: 'inherit',
+                        '&:hover': {
+                          color: 'inherit',
+                          opacity: 0.8,
+                        },
+                      },
+                    }}
                   />
-                ))
-              ) : (
-                <Typography variant="body2" color="textSecondary">
-                  No roles assigned yet
-                </Typography>
-              )}
+                  </Box>
+                ))}
+              </Box>
             </Box>
-          </Box>
-        </Grid>
-      </Grid>
+      </Box>
 
       {/* Add Custom Role Dialog */}
       <Dialog 

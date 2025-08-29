@@ -123,33 +123,109 @@ function MeetingForm() {
     }));
   };
 
+  // Map of role IDs to their full names
+  const getFullRoleName = (roleId, currentName) => {
+    const roleMap = {
+      'R2': 'Quiz Master',
+      'R5': 'Sergeant at Arms',
+      'R7': 'Grammarian',
+      'R11': 'General Evaluator',
+      // Add other role mappings as needed
+    };
+    return roleMap[roleId] || currentName;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     try {
       // Prepare meeting data with proper role objects
       const meetingData = {
-        ...meeting,
+        // Only include fields that should be sent to the backend
+        date: meeting.date instanceof Date ? meeting.date.toISOString().split('T')[0] : meeting.date,
+        startTime: meeting.startTime,
+        endTime: meeting.endTime,
+        theme: meeting.theme,
+        venue: meeting.venue,
+        category: meeting.category,
         roles: Array.isArray(meeting.roles) 
-          ? meeting.roles.map(role => ({
-              roleId: role.roleId,
-              roleName: role.roleName,
-              isCustom: role.isCustom || false
-            }))
+          ? meeting.roles.map(role => {
+              // Extract base role ID (remove instance number if present)
+              const baseRoleId = role.roleId.split('_')[0];
+              const roleData = {
+                roleId: baseRoleId, // Send base role ID without instance number
+                roleName: getFullRoleName(baseRoleId, role.roleName.split(' ')[0]),
+                isCustom: role.isCustom || false
+              };
+              
+              // Only include instanceNumber if it exists and is a number
+              const instanceNumber = role.roleId.includes('_') 
+                ? parseInt(role.roleId.split('_')[1]) 
+                : null;
+              
+              if (!isNaN(instanceNumber)) {
+                roleData.instanceNumber = instanceNumber;
+              }
+              
+              return roleData;
+            })
           : []
       };
 
+      console.log('Submitting meeting data:', JSON.stringify(meetingData, null, 2));
+
       if (meetingId) {
         await meetingService.updateMeeting(meetingId, meetingData);
-        Swal.fire("Success!", "Meeting updated successfully!", "success");
+        Swal.fire({
+          title: "Success!",
+          text: "Meeting updated successfully!",
+          icon: "success"
+        });
       } else {
         await meetingService.addMeeting(meetingData);
-        Swal.fire("Success!", "Meeting created successfully!", "success");
+        Swal.fire({
+          title: "Success!",
+          text: "Meeting created successfully!",
+          icon: "success"
+        });
       }
       navigate("/meetings");
     } catch (error) {
-      console.error("Error saving meeting:", error);
-      Swal.fire("Error!", "Failed to save meeting. Please try again.", "error");
+      const errorDetails = {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        config: {
+          url: error.config?.url,
+          method: error.config?.method,
+          data: error.config?.data
+        }
+      };
+      
+      console.error("Error saving meeting:", JSON.stringify(errorDetails, null, 2));
+      
+      // Try to get a more detailed error message
+      let errorMessage = 'Failed to save meeting. Please try again.';
+      if (error.response?.data) {
+        if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data;
+        } else if (error.response.data.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.response.data.error) {
+          errorMessage = error.response.data.error;
+        }
+      }
+      
+      Swal.fire({
+        title: `Error ${error.response?.status || ''}`,
+        text: errorMessage,
+        icon: 'error',
+        confirmButtonText: 'OK',
+        footer: error.response?.data?.path 
+          ? `<small>Path: ${error.response.data.path}</small>` 
+          : undefined
+      });
     }
   };
 
