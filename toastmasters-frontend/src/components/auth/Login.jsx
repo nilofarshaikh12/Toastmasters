@@ -23,9 +23,13 @@ const Login = () => {
       );
       
       if (response.data && response.data.data) {
-        const { role, name } = response.data.data;
+        const payload = response.data.data;
+        const { role, name, email: respEmail, id, userId, memberId } = payload;
+        const effectiveEmail = respEmail || email; // fall back to entered email
         console.log('Login successful, role:', role); // Debug log
-        login(role, name);
+
+        // Pass richer user object so AuthContext can enrich memberId by email
+        login({ role, name, email: effectiveEmail, id, userId, memberId });
         
         // Redirect based on role - ensure the role matches exactly
         if (role === 'VP_EDUCATION' || role === 'VP EDUCATION') {
@@ -88,5 +92,3 @@ const Login = () => {
 };
 
 export default Login;
-
-

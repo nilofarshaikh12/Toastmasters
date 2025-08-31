@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import apiService from "../api/api.js";
 
 const AuthContext = createContext(null);
 
@@ -28,11 +29,44 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user]);
 
-  const login = (role, name = "") => {
-    setUser({ role, name });
+  // Backward compatible login: accepts either (role, name?) or a full user object
+  const login = (payloadOrRole, name = "") => {
+    if (typeof payloadOrRole === "object" && payloadOrRole !== null) {
+      // Expected shape: { role, name?, email?, id?, userId?, memberId? }
+      setUser(payloadOrRole);
+    } else {
+      const role = payloadOrRole;
+      setUser({ role, name });
+    }
   };
 
   const logout = () => setUser(null);
+
+  // Auto-enrich user with memberId and proper name using email when available
+  useEffect(() => {
+    const tryLinkMember = async () => {
+      if (!user) return;
+      if (user.memberId) return; // already linked
+      const email = user.email?.toString().trim();
+      if (!email) return;
+      try {
+        const res = await apiService.getMembers();
+        const members = res?.data?.data || [];
+        const match = members.find((m) => m.email?.toLowerCase() === email.toLowerCase());
+        if (match) {
+          setUser((prev) => ({
+            ...prev,
+            memberId: match.memberId,
+            name: prev?.name || match.memberName,
+          }));
+        }
+      } catch (_) {
+        // ignore errors; UI will handle missing mapping
+      }
+    };
+    tryLinkMember();
+    // Only re-run when email or memberId changes
+  }, [user?.email, user?.memberId]);
 
   const value = useMemo(() => {
     // Normalize the role by converting to uppercase and replacing spaces with underscores
@@ -55,5 +89,3 @@ export const useAuth = () => {
   if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;
 };
-
-

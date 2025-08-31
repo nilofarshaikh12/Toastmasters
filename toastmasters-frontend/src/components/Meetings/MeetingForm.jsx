@@ -173,11 +173,76 @@ function MeetingForm() {
     return roleMap[roleId] || currentName;
   };
 
+  //  Check for meeting conflicts
+  const checkMeetingConflict = async (date, startTime, endTime) => {
+    try {
+      const response = await meetingService.getAllMeetings();
+      const meetings = response.data.data || [];
+      
+      // Find conflicts (same date and overlapping time)
+      const conflicts = meetings.filter(existingMeeting => {
+        // Skip if editing the same meeting
+        if (meetingId && existingMeeting.meetingId === meetingId) {
+          return false;
+        }
+        
+        // Check if same date
+        const existingDate = existingMeeting.date.split('T')[0];
+        if (existingDate !== date) {
+          return false;
+        }
+        
+        // Check time overlap
+        const newStart = new Date(`${date}T${startTime}`);
+        const newEnd = new Date(`${date}T${endTime}`);
+        const existingStart = new Date(`${existingDate}T${existingMeeting.startTime}`);
+        const existingEnd = new Date(`${existingDate}T${existingMeeting.endTime}`);
+        
+        // Check if times overlap
+        return (newStart < existingEnd && newEnd > existingStart);
+      });
+      
+      return conflicts;
+    } catch (error) {
+      console.error("Error checking meeting conflicts:", error);
+      return [];
+    }
+  };
+
   // ✅ Submit form
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
+      // Check for meeting conflicts before submitting
+      const conflicts = await checkMeetingConflict(meeting.date, meeting.startTime, meeting.endTime);
+      
+      if (conflicts.length > 0) {
+        const conflictDetails = conflicts.map(c => 
+          `${c.date.split('T')[0]} ${c.startTime}-${c.endTime} (${c.theme})`
+        ).join('\n');
+        
+        const result = await Swal.fire({
+          title: 'Meeting Time Conflict',
+          html: `
+            <p>A meeting already exists at this date and time:</p>
+            <div style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;">
+              <strong>${conflictDetails}</strong>
+            </div>
+            <p>Do you still want to create this meeting?</p>
+          `,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Yes, Create Meeting',
+          cancelButtonText: 'Cancel',
+          confirmButtonColor: '#d33',
+          cancelButtonColor: '#3085d6'
+        });
+        
+        if (!result.isConfirmed) {
+          return; // User cancelled, don't proceed
+        }
+      }
       const meetingData = {
         date:
           meeting.date instanceof Date
