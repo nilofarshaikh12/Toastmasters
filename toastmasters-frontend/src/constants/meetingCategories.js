@@ -98,6 +98,24 @@ export const getApplicableRoleCategories = (meetingCategory) => {
     case MEETING_CATEGORIES.SPECIAL:
       return [ROLE_CATEGORIES.SHARED_ALL_MEETINGS, ROLE_CATEGORIES.SPECIAL_ONLY, ROLE_CATEGORIES.REGULAR_AND_SPECIAL];
     default:
-      return [ROLE_CATEGORIES.SHARED_ALL_MEETINGS, ROLE_CATEGORIES.REGULAR_ONLY, ROLE_CATEGORIES.CONTEST_ONLY, ROLE_CATEGORIES.SPECIAL_ONLY, ROLE_CATEGORIES.REGULAR_AND_SPECIAL];
+      return [];
   }
+};
+
+// Helper function to format role name with instance number
+export const formatRoleName = (role, assignedRoles = []) => {
+  // Count how many instances of this role are already assigned
+  const instanceNumber = assignedRoles.filter(r => r.roleId === role.roleId).length + 1;
+  
+  // Get the total instances defined for this role in the meeting
+  const totalInstances = assignedRoles.reduce((acc, r) => 
+    r.roleId === role.roleId ? acc + 1 : acc, 0
+  ) + 1;
+  
+  // Only show instance number if there are multiple instances
+  if (totalInstances > 1) {
+    return `${role.roleName} (${instanceNumber} of ${totalInstances})`;
+  }
+  
+  return role.roleName;
 };

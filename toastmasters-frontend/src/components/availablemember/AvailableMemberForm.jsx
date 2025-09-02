@@ -5,6 +5,7 @@ import availableMemberService from "../../api/availableMemberService.js";
 import meetingService from "../../api/meetingservice.js";
 import apiService from "../../api/api.js";
 import roleService from "../../api/roleService.js";
+import assignedRoleService from "../../api/assignedRoleService.js"; // Import assignedRoleService
 import { getApplicableRoleCategories } from "../../constants/meetingCategories.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 
@@ -29,6 +30,7 @@ function AvailableMemberForm() {
   const [members, setMembers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [filteredRoles, setFilteredRoles] = useState([]);
+  const [assignedRoles, setAssignedRoles] = useState([]); // Add state for assigned roles
   const [autoPopulateWarning, setAutoPopulateWarning] = useState("");
 
   // Load meetings, members, roles
@@ -139,10 +141,27 @@ function AvailableMemberForm() {
     fetchData();
   }, [id, user]);
 
+  // Add this effect to fetch assigned roles when meeting is selected
+  useEffect(() => {
+    const fetchAssignedRoles = async () => {
+      if (!availableMember.meetingId) return;
+      
+      try {
+        const response = await assignedRoleService.getAssignedRolesByMeeting(availableMember.meetingId);
+        setAssignedRoles(Array.isArray(response?.data) ? response.data : []);
+      } catch (error) {
+        console.error('Error fetching assigned roles:', error);
+        setAssignedRoles([]);
+      }
+    };
+
+    fetchAssignedRoles();
+  }, [availableMember.meetingId]);
+
   // Filter roles whenever meeting changes
   useEffect(() => {
     const fetchMeetingRoles = async () => {
-      if (availableMember.meetingId && meetings.length > 0) {
+      if (availableMember.meetingId && roles.length > 0) {
         const selectedMeeting = meetings.find(
           (m) => String(m.meetingId) === String(availableMember.meetingId)
         );
@@ -153,30 +172,72 @@ function AvailableMemberForm() {
             const meetingResponse = await meetingService.getMeetingById(availableMember.meetingId);
             const meetingData = meetingResponse.data.data;
 
-            if (meetingData.roles && meetingData.roles.length > 0) {
-              const uniqueRoles = [];
-              const seen = new Set();
+            // Get assigned role IDs for this meeting
+            const assignedRoleIds = new Set(
+              assignedRoles.map(ar => ar.roleId)
+            );
 
+            if (meetingData.roles && meetingData.roles.length > 0) {
+              // Normalize to BASE role id (digits) for counting
+              const normBase = (v) => {
+                const s = String(v ?? '').trim();
+                const head = s.includes('_') ? s.split('_')[0] : s; // handle composed like R12_2
+                const digits = head.replace(/^R/i, '');
+                return digits; // just digits for map key
+              };
+
+              // Planned instances per base role from meeting definition
+              const plannedCounts = {};
+              const meetingBaseToLabel = {};
               meetingData.roles.forEach((mr) => {
-                const key = `${mr.roleId}_${mr.roleName}`;
-                if (!seen.has(key)) {
-                  seen.add(key);
-                  const fullRole =
-                    roles.find((r) => r.roleId === mr.roleId) || {
-                      roleId: mr.roleId,
-                      roleName: mr.roleName,
-                      roleDescription: mr.description || "",
-                      category: mr.isCustom ? "CUSTOM" : "SHARED_ALL_MEETINGS",
-                    };
-                  uniqueRoles.push(fullRole);
+                const base = normBase(mr.baseRoleId || mr.roleId);
+                if (!base) return;
+                plannedCounts[base] = (plannedCounts[base] || 0) + 1;
+                if (!meetingBaseToLabel[base]) {
+                  meetingBaseToLabel[base] = mr.roleName || '';
                 }
               });
+
+              // Current assignments count per base role
+              const assignedCounts = {};
+              assignedRoles.forEach((ar) => {
+                const base = normBase(ar.baseRoleId || ar.roleId);
+                if (!base) return;
+                assignedCounts[base] = (assignedCounts[base] || 0) + 1;
+              });
+
+              // Determine which base roles still have remaining capacity
+              const remainingBases = new Set(
+                Object.keys(plannedCounts).filter((b) => (assignedCounts[b] || 0) < (plannedCounts[b] || 0))
+              );
+
+              // Build unique role list from meeting roles but only include bases with remaining capacity
+              const uniqueRoles = [];
+              const seenBase = new Set();
+              meetingData.roles.forEach((mr) => {
+                const base = normBase(mr.baseRoleId || mr.roleId);
+                if (!remainingBases.has(base)) return; // all instances filled
+                if (seenBase.has(base)) return; // keep one card per base in preferred roles
+                seenBase.add(base);
+                const targetRoleId = `R${base}`;
+                const fullRole =
+                  roles.find((r) => String(r.roleId) === targetRoleId || String(r.roleId) === base) || {
+                    roleId: targetRoleId,
+                    roleName: meetingBaseToLabel[base] || mr.roleName,
+                    roleDescription: mr.description || "",
+                    category: mr.isCustom ? "CUSTOM" : "SHARED_ALL_MEETINGS",
+                  };
+                uniqueRoles.push(fullRole);
+              });
+
               setFilteredRoles(uniqueRoles);
             } else {
               const applicableCats = getApplicableRoleCategories(selectedMeeting.category);
               setFilteredRoles(
-                roles.filter((r) =>
-                  (r?.category || r?.roleCategory || "") && applicableCats.includes(r.category || r.roleCategory)
+                roles.filter((r) => 
+                  (r?.category || r?.roleCategory || "") && 
+                  applicableCats.includes(r.category || r.roleCategory) &&
+                  !assignedRoleIds.has(r.roleId) // Exclude assigned roles
                 )
               );
             }
@@ -185,7 +246,9 @@ function AvailableMemberForm() {
             const applicableCats = getApplicableRoleCategories(selectedMeeting.category);
             setFilteredRoles(
               roles.filter((r) =>
-                (r?.category || r?.roleCategory || "") && applicableCats.includes(r.category || r.roleCategory)
+                (r?.category || r?.roleCategory || "") && 
+                applicableCats.includes(r.category || r.roleCategory) &&
+                !assignedRoleIds.has(r.roleId) // Exclude assigned roles
               )
             );
           }
@@ -198,7 +261,7 @@ function AvailableMemberForm() {
     };
 
     if (roles.length > 0) fetchMeetingRoles();
-  }, [availableMember.meetingId, meetings, roles]);
+  }, [availableMember.meetingId, meetings, roles, assignedRoles]); // Add assignedRoles to dependencies
 
   const handleChange = (e) => {
     const { name, value } = e.target;

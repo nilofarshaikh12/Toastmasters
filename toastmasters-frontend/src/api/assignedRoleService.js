@@ -7,21 +7,29 @@ const assignedRoleService = {
   getAssignedRolesByMeeting: (meetingId) => {
     return axios.get(`${API_BASE_URL}/meeting/${meetingId}`);
   },
-  assignRole: (roleAssignment) => {
-    console.log('Sending to backend:', JSON.stringify(roleAssignment, null, 2));
-    return axios.post(API_BASE_URL, roleAssignment)
-      .then(response => {
-        console.log('Backend response:', response.data);
-        return response;
-      })
-      .catch(error => {
-        console.error('Error in assignRole:', {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status
-        });
-        throw error;
-      });
+  assignRole: async (roleAssignment) => {
+    try {
+      console.log('Sending to backend:', JSON.stringify(roleAssignment, null, 2));
+      const response = await axios.post(API_BASE_URL, roleAssignment);
+      console.log('Backend response:', response.data);
+      return response;
+    } catch (error) {
+      const resp = error.response;
+      const details = {
+        message: error.message,
+        status: resp?.status,
+        statusText: resp?.statusText,
+        url: resp?.config?.url,
+        method: resp?.config?.method,
+        responseData: resp?.data,
+      };
+      try {
+        console.error('Error in assignRole (detailed):', JSON.stringify(details, null, 2));
+      } catch (_) {
+        console.error('Error in assignRole (raw):', details);
+      }
+      throw error;
+    }
   },
   getMemberRoleHistory: (memberId) => {
     return axios.get(`${API_BASE_URL}/history/member/${memberId}?limit=3`);

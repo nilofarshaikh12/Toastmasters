@@ -138,8 +138,8 @@ export default function MeetingDetails() {
         return [];
       };
 
-      // Available members with fallbacks
-      let amList = await tryFetchList((id) => availableMemberService.getAvailableMembersByMeeting(id), 'available-members');
+      // Available members with fallbacks - use robust method to avoid 404 errors
+      let amList = await availableMemberService.getAvailableMembersByMeetingRobust(meetingId);
       // If empty, try fetching all and filter client-side by various meetingId shapes
       if ((!Array.isArray(amList) || amList.length === 0)) {
         try {
@@ -161,8 +161,17 @@ export default function MeetingDetails() {
       console.log('[MeetingDetails] Available members count:', Array.isArray(amList) ? amList.length : 'n/a');
       setAvailableMembers(Array.isArray(amList) ? amList : []);
 
-      // Assigned roles with fallbacks (usually works with URL id, but safe to try)
-      const arList = await tryFetchList((id) => assignedRoleService.getAssignedRolesByMeeting(id), 'assigned-roles');
+      // Assigned roles with fallbacks - use robust method to avoid 404 errors
+      let arList = [];
+      try {
+        const arRes = await assignedRoleService.getAssignedRolesByMeeting(meetingId);
+        arList = Array.isArray(arRes?.data) ? arRes.data : (Array.isArray(arRes?.data?.data) ? arRes.data.data : []);
+      } catch (e) {
+        if (e?.response?.status !== 404) {
+          console.warn('[MeetingDetails] Failed to fetch assigned roles:', e);
+        }
+        arList = [];
+      }
       console.log('[MeetingDetails] Assigned roles count:', Array.isArray(arList) ? arList.length : 'n/a');
       setAssignedRoles(arList);
 
