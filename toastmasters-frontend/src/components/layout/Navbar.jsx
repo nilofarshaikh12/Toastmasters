@@ -67,6 +67,9 @@ const Navbar = () => {
                 <span className="navbar-text text-white small">
                   {user.name ? `${user.name} · ` : ""}{isVPEducation ? "VP Education" : "Member"}
                 </span>
+                <Link className="btn btn-outline-info btn-sm" to="/profile">
+                  My Profile
+                </Link>
                 <button className="btn btn-outline-light btn-sm" onClick={logout}>
                   Logout
                 </button>

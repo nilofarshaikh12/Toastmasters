@@ -34,6 +34,11 @@ const assignedRoleService = {
   getMemberRoleHistory: (memberId) => {
     return axios.get(`${API_BASE_URL}/history/member/${memberId}?limit=3`);
   },
+  // Fetch a larger window of assignments for a member (used by Member Profile)
+  getMemberAssignments: (memberId, limit = 1000) => {
+    const lim = Number.isFinite(limit) ? limit : 1000;
+    return axios.get(`${API_BASE_URL}/history/member/${memberId}?limit=${lim}`);
+  },
   getAvailableRolesForMeeting: (meetingId) => {
     return axios.get(`${API_BASE_URL}/available-roles/meeting/${meetingId}`);
   },

@@ -206,17 +206,12 @@ function AvailableMemberForm() {
                 assignedCounts[base] = (assignedCounts[base] || 0) + 1;
               });
 
-              // Determine which base roles still have remaining capacity
-              const remainingBases = new Set(
-                Object.keys(plannedCounts).filter((b) => (assignedCounts[b] || 0) < (plannedCounts[b] || 0))
-              );
-
-              // Build unique role list from meeting roles but only include bases with remaining capacity
+              // Build unique role list from meeting roles and include ALL bases
               const uniqueRoles = [];
               const seenBase = new Set();
               meetingData.roles.forEach((mr) => {
                 const base = normBase(mr.baseRoleId || mr.roleId);
-                if (!remainingBases.has(base)) return; // all instances filled
+                if (!base) return;
                 if (seenBase.has(base)) return; // keep one card per base in preferred roles
                 seenBase.add(base);
                 const targetRoleId = `R${base}`;
@@ -227,7 +222,14 @@ function AvailableMemberForm() {
                     roleDescription: mr.description || "",
                     category: mr.isCustom ? "CUSTOM" : "SHARED_ALL_MEETINGS",
                   };
-                uniqueRoles.push(fullRole);
+                // Attach fullness flag and remaining count for UI
+                const planned = plannedCounts[base] || 0;
+                const taken = assignedCounts[base] || 0;
+                uniqueRoles.push({
+                  ...fullRole,
+                  _isFull: taken >= planned && planned > 0,
+                  _remaining: Math.max(0, planned - taken),
+                });
               });
 
               setFilteredRoles(uniqueRoles);
@@ -377,24 +379,38 @@ function AvailableMemberForm() {
             </label>
             <div className="d-flex flex-wrap">
               {filteredRoles.length > 0 ? (
-                filteredRoles.map((role) => (
-                  <div key={role.roleId} className="form-check me-3 mb-2">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      value={role.roleId}
-                      id={`role-${role.roleId}`}
-                      checked={availableMember.preferredRoleIds.has(role.roleId)}
-                      onChange={handleRoleChange}
-                      disabled={['UNAVAILABLE', 'TENTATIVE'].includes(availableMember.availabilityStatus) ||
-                        (availableMember.preferredRoleIds.size >= 3 &&
-                          !availableMember.preferredRoleIds.has(role.roleId))}
-                    />
-                    <label className="form-check-label" htmlFor={`role-${role.roleId}`}>
-                      {role.roleName}
-                    </label>
-                  </div>
-                ))
+                filteredRoles.map((role) => {
+                  const isStatusDisabled = ['UNAVAILABLE', 'TENTATIVE'].includes(availableMember.availabilityStatus);
+                  const isCapDisabled = role._isFull === true;
+                  const isMaxSelected = availableMember.preferredRoleIds.size >= 3 && !availableMember.preferredRoleIds.has(role.roleId);
+                  const disabled = isStatusDisabled || isCapDisabled || isMaxSelected;
+                  const helper = isCapDisabled
+                    ? 'All assigned'
+                    : Number.isFinite(role._remaining) && role._remaining >= 0
+                    ? `${role._remaining} left`
+                    : '';
+                  return (
+                    <div key={role.roleId} className="form-check me-3 mb-2">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        value={role.roleId}
+                        id={`role-${role.roleId}`}
+                        checked={availableMember.preferredRoleIds.has(role.roleId)}
+                        onChange={handleRoleChange}
+                        disabled={disabled}
+                      />
+                      <label className="form-check-label" htmlFor={`role-${role.roleId}`}>
+                        {role.roleName}
+                        {helper && (
+                          <span className={`ms-2 badge ${isCapDisabled ? 'bg-secondary' : 'bg-info text-dark'}`}>
+                            {helper}
+                          </span>
+                        )}
+                      </label>
+                    </div>
+                  );
+                })
               ) : (
                 <div className="text-muted">
                   {availableMember.meetingId

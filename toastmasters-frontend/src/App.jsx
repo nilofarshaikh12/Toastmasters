@@ -32,6 +32,7 @@ import VPEducationDashboard from "./components/dashboard/VPEducationDashboard";
 // Member components
 import MemberTable from "./components/members/MemberTable";
 import MemberDetails from "./components/members/MemberDetails";
+import MemberProfile from "./components/members/MemberProfile";
 import MemberForm from "./components/members/MemberForm";
 
 // Meetings components
@@ -110,6 +111,10 @@ function App() {
                     <Route path="/members/add" element={<RequireAuth><MemberForm /></RequireAuth>} />
                     <Route path="/members/edit/:id" element={<RequireAuth><MemberForm /></RequireAuth>} />
                     <Route path="/members/:id" element={<RequireAuth><MemberDetails /></RequireAuth>} />
+
+                    {/* Member Profile */}
+                    <Route path="/profile" element={<RequireAuth><MemberProfile /></RequireAuth>} />
+                    <Route path="/profile/:memberId" element={<RequireAuth><MemberProfile /></RequireAuth>} />
 
                     {/* Meetings Routes */}
                     <Route path="/meetings" element={<RequireAuth><MeetingsTable /></RequireAuth>} />
