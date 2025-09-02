@@ -8,4 +8,5 @@ public class AssignedRoleRequestDTO {
     private int memberId;
     private String roleId;
     private Boolean forceAssign = false;
+    private Integer instanceNumber;
 }

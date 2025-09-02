@@ -14,6 +14,7 @@ public class AssignedRoleMapper {
         dto.setMemberName(assignedRole.getMember().getMemberName());
         dto.setRoleId(assignedRole.getRole().getRoleId());
         dto.setRoleName(assignedRole.getRole().getRoleName());
+        dto.setInstanceNumber(assignedRole.getInstanceNumber());
         return dto;
     }
 }

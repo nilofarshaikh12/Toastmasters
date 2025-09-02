@@ -17,7 +17,6 @@ import java.util.List;
 @Mapper(componentModel = "spring")
 public interface AvailableMemberMapper {
 
-    // Convert Request DTO to Entity
     default AvailableMember toEntity(AvailableMemberRequestDTO dto, Meeting meeting, Member member, @Context RolesRepository roleRepository) {
         if (dto == null) return null;
 
@@ -26,59 +25,60 @@ public interface AvailableMemberMapper {
         availableMember.setMember(member);
         availableMember.setAvailabilityStatus(dto.getAvailabilityStatus());
 
-        // Map role IDs to entities in list
         availableMember.setPreferredRoles(mapRoleIdsToEntities(dto.getPreferredRoleIds(), roleRepository));
 
         return availableMember;
     }
 
-    // Convert Entity to Response DTO
     default AvailableMemberResponseDTO toResponseDTO(AvailableMember availableMember) {
         if (availableMember == null) {
             return null;
         }
 
         AvailableMemberResponseDTO dto = new AvailableMemberResponseDTO();
-
-        // Set internal ID
         dto.setId(availableMember.getId());
 
-        // Map meeting ID
         if (availableMember.getMeeting() != null) {
             dto.setMeetingId(availableMember.getMeeting().getMeetingId());
         }
 
-        // Map member ID
         if (availableMember.getMember() != null) {
             dto.setMemberId(availableMember.getMember().getMemberId());
         }
 
-        // Map availability status
         dto.setAvailabilityStatus(availableMember.getAvailabilityStatus());
-
-        // Map preferred roles
         dto.setPreferredRoles(mapRolesToRoleResponseDTOs(availableMember.getPreferredRoles()));
 
         return dto;
     }
 
-    // Map role IDs from request DTO to Roles entities (maintain order)
+    // UPDATED: Map role IDs from request DTO to Roles entities
     default List<Roles> mapRoleIdsToEntities(List<String> roleIds, @Context RolesRepository roleRepository) {
         List<Roles> roles = new ArrayList<>();
         if (roleIds != null) {
             for (String roleId : roleIds) {
-                Roles role = roleRepository.findById(roleId).orElse(null);
-                if (role != null) {
-                    roles.add(role);
+                // Check for the special "custom" role ID
+                if ("custom".equalsIgnoreCase(roleId)) {
+                    // If it's a custom role, create a new Roles object
+                    Roles customRole = new Roles();
+                    customRole.setRoleId("custom");
+                    customRole.setRoleName("Custom");
+                    // You can add other properties as needed
+                    roles.add(customRole);
                 } else {
-                    throw new RuntimeException("Role not found: " + roleId);
+                    // For all other roles, perform the database lookup
+                    Roles role = roleRepository.findByRoleIdIgnoreCase(roleId).orElse(null);
+                    if (role != null) {
+                        roles.add(role);
+                    } else {
+                        throw new RuntimeException("Role not found: " + roleId);
+                    }
                 }
             }
         }
         return roles;
     }
 
-    // Map Roles entities to RoleResponseDTOForAvailable (keep order)
     default List<RoleResponseDTOForAvailable> mapRolesToRoleResponseDTOs(List<Roles> roles) {
         List<RoleResponseDTOForAvailable> dtos = new ArrayList<>();
         if (roles != null) {

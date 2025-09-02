@@ -41,9 +41,9 @@ public class RoleServiceImpl implements RoleService{
 
     @Override
     public RoleResponseDTO getRoleById(String roleId) {
-
-        Roles role= rolesRepository.findByRoleId(roleId);
-        if(role==null){
+        // Updated to use a case-insensitive find
+        Roles role = rolesRepository.findByRoleIdIgnoreCase(roleId).orElse(null);
+        if(role == null){
             throw new RoleNotFoundException(RoleConstants.ROLE_NOT_FOUND);
         }
         return roleMapper.toResponseDTO(role);
@@ -51,7 +51,8 @@ public class RoleServiceImpl implements RoleService{
 
     @Override
     public RoleResponseDTO updateRole(String roleId, RoleRequestDTO roleRequestDTO) {
-        Roles roles = rolesRepository.findByRoleId(roleId);
+        // Updated to use a case-insensitive find
+        Roles roles = rolesRepository.findByRoleIdIgnoreCase(roleId).orElse(null);
 
         if (roles == null) {
             throw new RoleNotFoundException("Role update failed: Role not found");
@@ -78,7 +79,8 @@ public class RoleServiceImpl implements RoleService{
 
     @Override
     public void deleteRole(String roleId) {
-        Roles roles = rolesRepository.findByRoleId(roleId);
+        // Updated to use a case-insensitive find
+        Roles roles = rolesRepository.findByRoleIdIgnoreCase(roleId).orElse(null);
         if (roles == null) {
             throw new RoleNotFoundException("Role Deletion failed: Role not found");
         }

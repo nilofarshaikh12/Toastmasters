@@ -3,13 +3,16 @@ package com.example.toastMasters.services;
 import com.example.toastMasters.constants.MeetingConstants;
 import com.example.toastMasters.dto.MeetingRequestDTO;
 import com.example.toastMasters.dto.MeetingResponseDTO;
+import com.example.toastMasters.dto.MeetingRoleDTO;
 import com.example.toastMasters.entity.Meeting;
+import com.example.toastMasters.entity.MeetingRole;
 import com.example.toastMasters.exceptions.MeetingNotFoundException;
 import com.example.toastMasters.mapper.MeetingMapper;
 import com.example.toastMasters.repositories.MeetingRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -26,6 +29,11 @@ public class MeetingServiceImpl implements MeetingService{
     public MeetingResponseDTO addMeeting(MeetingRequestDTO requestDTO) {
         Meeting meeting = meetingMapper.toEntity(requestDTO);
         meeting.setDeleted(false);
+
+        if (meeting.getRoles() != null) {
+            meeting.getRoles().forEach(role -> role.setMeeting(meeting));
+        }
+
         Meeting savedMeeting = meetingRepository.save(meeting);
         return meetingMapper.toResponseDTO(savedMeeting);
     }
@@ -47,7 +55,8 @@ public class MeetingServiceImpl implements MeetingService{
         if (meeting==null) {
             throw new MeetingNotFoundException(MeetingConstants.MEETING_NOT_FOUND);
         }
-        return meetingMapper.toResponseDTO(meeting);    }
+        return meetingMapper.toResponseDTO(meeting);
+    }
 
     @Override
     public MeetingResponseDTO updateMeeting(String meetingId, MeetingRequestDTO meetingRequestDTO) {
@@ -56,6 +65,8 @@ public class MeetingServiceImpl implements MeetingService{
         if (meeting == null) {
             throw new MeetingNotFoundException(MeetingConstants.MEETING_NOT_FOUND);
         }
+
+        // ✅ Update only non-null fields
         if (meetingRequestDTO.getDate() != null) {
             meeting.setDate(meetingRequestDTO.getDate());
         }
@@ -75,9 +86,37 @@ public class MeetingServiceImpl implements MeetingService{
             meeting.setCategory(meetingRequestDTO.getCategory());
         }
 
+        // ✅ Handle roles update safely
+        if (meetingRequestDTO.getRoles() != null) {
+            try {
+                if (meeting.getRoles() == null) {
+                    meeting.setRoles(new ArrayList<>());
+                } else {
+                    meeting.getRoles().clear(); // orphanRemoval deletes old roles
+                }
+
+                for (MeetingRoleDTO roleDTO : meetingRequestDTO.getRoles()) {
+                    MeetingRole meetingRole = new MeetingRole();
+                    meetingRole.setRoleId(roleDTO.getRoleId());
+                    meetingRole.setRoleName(roleDTO.getRoleName());
+                    meetingRole.setInstanceNumber(roleDTO.getInstanceNumber());
+                    meetingRole.setCustom(roleDTO.isCustom());
+                    meetingRole.setMeeting(meeting);
+
+                    meeting.getRoles().add(meetingRole);
+                }
+
+            } catch (Exception e) {
+                System.err.println("Error updating meeting roles: " + e.getMessage());
+                e.printStackTrace();
+                throw new RuntimeException("Failed to update meeting roles", e);
+            }
+        }
+
         Meeting updatedMeeting = meetingRepository.save(meeting);
         return meetingMapper.toResponseDTO(updatedMeeting);
     }
+
 
     @Override
     public void deleteMeeting(String meetingId) {

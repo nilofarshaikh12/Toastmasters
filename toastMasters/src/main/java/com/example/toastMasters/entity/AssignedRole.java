@@ -28,4 +28,7 @@ public class AssignedRole {
     @ManyToOne
     @JoinColumn(name = "role_id", nullable = false)
     private Roles role;
+
+    // Added field to store the specific instance number
+    private Integer instanceNumber;
 }

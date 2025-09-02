@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface AssignedRoleRepository extends JpaRepository<AssignedRole, Long> {
@@ -21,4 +22,10 @@ public interface AssignedRoleRepository extends JpaRepository<AssignedRole, Long
 
     List<AssignedRole> findByMeeting(Meeting meeting);
     List<AssignedRole> findByMeetingAndRole(Meeting meeting, Roles role);
+
+    // Method to find a specific role instance within a meeting
+    Optional<AssignedRole> findByMeetingAndRoleAndInstanceNumber(Meeting meeting, Roles role, Integer instanceNumber);
+
+    // Method to find all assignments for a given meeting, member, and role
+    List<AssignedRole> findByMeetingAndMemberAndRole(Meeting meeting, Member member, Roles role);
 }
