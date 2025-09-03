@@ -13,28 +13,19 @@ const availableMemberService = {
 
   // Robust variant: tries multiple ID formats and falls back to filtering all
   getAvailableMembersByMeetingRobust: async (meetingId) => {
-    const candidates = [];
-    const pushIf = (v) => { if (v !== undefined && v !== null && String(v).trim() !== '') candidates.push(String(v)); };
-    pushIf(meetingId);
-    const stripM = (v) => String(v).trim().replace(/^M/i, '');
-    pushIf(stripM(meetingId));
-    // dedupe
-    const seen = new Set();
-    const uniqueCandidates = candidates.filter(c => (seen.has(c) ? false : (seen.add(c), true)));
+    // Backend expects IDs in the form 'M12', 'M13', etc.
+    const idM = String(meetingId).trim().toUpperCase().startsWith('M')
+      ? String(meetingId).trim().toUpperCase()
+      : `M${String(meetingId).trim()}`;
 
-    // Try endpoint with candidates
-    for (const c of uniqueCandidates) {
-      try {
-        const res = await axios.get(`${API_BASE_URL}/meeting/${c}`);
-        const arr = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : null);
-        if (Array.isArray(arr)) return arr;
-      } catch (e) {
-        if (e?.response?.status === 404) {
-          continue; // try next candidate
-        }
-        // log and try next
+    try {
+      const res = await axios.get(`${API_BASE_URL}/meeting/${idM}`);
+      const arr = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : null);
+      if (Array.isArray(arr)) return arr;
+    } catch (e) {
+      if (e?.response?.status !== 404) {
         // eslint-disable-next-line no-console
-        console.warn('[availableMemberService] meeting fetch failed for', c, e);
+        console.warn('[availableMemberService] meeting fetch failed for', idM, e);
       }
     }
 
@@ -42,15 +33,9 @@ const availableMemberService = {
     try {
       const allRes = await axios.get(`${API_BASE_URL}/getAllMembers`);
       const all = allRes?.data?.data ?? allRes?.data ?? [];
-      const norm = (v) => String(v ?? '').trim();
-      const input = norm(meetingId);
-      const inputStripped = stripM(meetingId);
-      const set = new Set([input, inputStripped]);
-      return (Array.isArray(all) ? all : []).filter(x => {
-        const mid = norm(x.meetingId);
-        const midStripped = stripM(x.meetingId);
-        return set.has(mid) || set.has(midStripped);
-      });
+      const norm = (v) => String(v ?? '').trim().toUpperCase();
+      const inputM = norm(idM);
+      return (Array.isArray(all) ? all : []).filter(x => norm(x.meetingId) === inputM);
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn('[availableMemberService] fallback getAllMembers failed', e);
@@ -58,8 +43,40 @@ const availableMemberService = {
     }
   },
 
-  getAvailableMemberById: (id) => {
-    return axios.get(`${API_BASE_URL}/${id}`); // Assuming a new endpoint for fetching by ID
+  // Robust fetch by ID: tries multiple endpoint shapes and normalizes response
+  getAvailableMemberById: async (id) => {
+    const candidates = [
+      `${API_BASE_URL}/${id}`,
+      `${API_BASE_URL}/getById/${id}`,
+      `${API_BASE_URL}/id/${id}`,
+    ];
+    // Try direct endpoints first
+    for (const url of candidates) {
+      try {
+        const res = await axios.get(url);
+        const data = res?.data?.data ?? res?.data ?? null;
+        if (data && typeof data === 'object') return data;
+      } catch (e) {
+        if (e?.response?.status === 404) continue;
+        // eslint-disable-next-line no-console
+        console.warn('[availableMemberService] getById variant failed for', url, e);
+      }
+    }
+    // Fallback: fetch all and find by id (support various id key names)
+    try {
+      const allRes = await axios.get(`${API_BASE_URL}/getAllMembers`);
+      const all = allRes?.data?.data ?? allRes?.data ?? [];
+      const idMatches = (obj, target) => {
+        const keys = ['id', 'availableMemberId', 'availabilityId', 'memberAvailabilityId'];
+        return keys.some(k => obj && obj[k] !== undefined && String(obj[k]) === String(target));
+      };
+      const match = (Array.isArray(all) ? all : []).find(x => idMatches(x, id));
+      if (match) return match;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[availableMemberService] fallback getAllMembers in getById failed', e);
+    }
+    throw new Error('Available member not found');
   },
 
   addAvailableMember: (availableMember) => {

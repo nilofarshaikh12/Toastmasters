@@ -127,11 +127,20 @@ function AvailableMemberForm() {
 
         // If editing, load availability
         if (id) {
-          const amRes = await availableMemberService.getAvailableMemberById(id);
-          const amData = amRes.data;
+          const amData = await availableMemberService.getAvailableMemberById(id);
+          const rolesField = amData?.preferredRoles;
+          let prefIds = [];
+          if (Array.isArray(rolesField) && rolesField.length > 0) {
+            // Could be array of objects or strings
+            prefIds = rolesField.map((r) => (typeof r === 'string' ? r : r?.roleId)).filter(Boolean);
+          } else if (Array.isArray(amData?.preferredRoleIds)) {
+            prefIds = amData.preferredRoleIds.filter(Boolean);
+          }
           setAvailableMember({
-            ...amData,
-            preferredRoleIds: new Set(amData.preferredRoles.map((r) => r.roleId)),
+            meetingId: amData?.meetingId ?? preselectedMeetingId ?? "",
+            memberId: amData?.memberId ?? "",
+            availabilityStatus: amData?.availabilityStatus ?? "AVAILABLE",
+            preferredRoleIds: new Set(prefIds),
           });
         }
       } catch (error) {
@@ -265,6 +274,33 @@ function AvailableMemberForm() {
     if (roles.length > 0) fetchMeetingRoles();
   }, [availableMember.meetingId, meetings, roles, assignedRoles]); // Add assignedRoles to dependencies
 
+  // Prevent duplicate availability: if adding and a record exists for this member+meeting, redirect to edit
+  useEffect(() => {
+    const enforceSingleSubmission = async () => {
+      if (id) return; // only for add mode
+      const mid = availableMember.meetingId;
+      const memId = availableMember.memberId;
+      if (!mid || !memId) return;
+      try {
+        const list = await availableMemberService.getAvailableMembersByMeetingRobust(mid);
+        const mine = (Array.isArray(list) ? list : []).find(x => String(x.memberId) === String(memId));
+        if (mine && mine.id) {
+          await Swal.fire({
+            icon: 'info',
+            title: 'Availability already submitted',
+            text: 'You have already submitted availability for this meeting. Redirecting you to edit it.',
+            timer: 1800,
+            showConfirmButton: false
+          });
+          navigate(`/available-members/edit/${mine.id}`);
+        }
+      } catch (e) {
+        // ignore; fallback to normal add flow
+      }
+    };
+    enforceSingleSubmission();
+  }, [id, availableMember.meetingId, availableMember.memberId, navigate]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setAvailableMember((prev) => {
@@ -301,6 +337,16 @@ function AvailableMemberForm() {
         await availableMemberService.updateAvailableMember(id, payload);
         Swal.fire("Success", "Availability updated successfully!", "success");
       } else {
+        // Guard against duplicate creation
+        try {
+          const list = await availableMemberService.getAvailableMembersByMeetingRobust(availableMember.meetingId);
+          const mine = (Array.isArray(list) ? list : []).find(x => String(x.memberId) === String(availableMember.memberId));
+          if (mine && mine.id) {
+            Swal.fire("Already Submitted", "You have already submitted availability for this meeting. Redirecting to edit.", "info");
+            navigate(`/available-members/edit/${mine.id}`);
+            return;
+          }
+        } catch (_) { /* ignore and allow submit */ }
         await availableMemberService.addAvailableMember(payload);
         Swal.fire("Success", "Availability added successfully!", "success");
       }

@@ -20,7 +20,7 @@ function AvailableMembersTable() {
   const [meetings, setMeetings] = useState([]);
   const [members, setMembers] = useState([]);
   const [allRoles, setAllRoles] = useState([]);
-  const { isVPEducation } = useAuth();
+  const { isVPEducation, user } = useAuth();
   const [assignedRoles, setAssignedRoles] = useState({});
   const [memberHistory, setMemberHistory] = useState({});
   const [meetingRoles, setMeetingRoles] = useState({}); // Store meeting-specific roles
@@ -33,6 +33,18 @@ function AvailableMembersTable() {
   const queryMeetingId = queryMeetingIdRaw ? normalizeMid(queryMeetingIdRaw) : '';
   const [infoBanner, setInfoBanner] = useState('');
   const [selectedMeeting, setSelectedMeeting] = useState(null);
+
+  // Resolve the logged-in user's memberId using AuthContext and roster fallback
+  const getCurrentUserMemberId = () => {
+    const uid = user?.memberId || user?.id || user?.userId;
+    if (uid) return String(uid);
+    // fallback by email lookup in loaded members list
+    if (user?.email && Array.isArray(members) && members.length > 0) {
+      const m = members.find(x => String(x.email || '').toLowerCase() === String(user.email).toLowerCase());
+      if (m?.memberId) return String(m.memberId);
+    }
+    return '';
+  };
 
   // Normalize role IDs to a comparable form (strip leading 'R' and trim)
   const normalizeRoleId = (id) => {
@@ -1753,7 +1765,29 @@ function AvailableMembersTable() {
                                 </button>
                               </>
                             ) : (
-                              <span className="text-muted">No actions available</span>
+                              (() => {
+                                const currentMemberId = getCurrentUserMemberId();
+                                const isOwn = currentMemberId && String(am.memberId) === String(currentMemberId);
+                                if (isOwn) {
+                                  return (
+                                    <>
+                                      <Link
+                                        to={`/available-members/edit/${am.id}`}
+                                        className="btn btn-sm btn-outline-primary me-2"
+                                      >
+                                        Edit
+                                      </Link>
+                                      <button
+                                        className="btn btn-sm btn-outline-danger"
+                                        onClick={() => deleteAvailableMember(am.id)}
+                                      >
+                                        Delete
+                                      </button>
+                                    </>
+                                  );
+                                }
+                                return <span className="text-muted">No actions available</span>;
+                              })()
                             )}
                           </td>
 {isVPEducation && (

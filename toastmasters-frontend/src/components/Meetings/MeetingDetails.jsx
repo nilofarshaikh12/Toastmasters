@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from "react-router-dom";
 import meetingService from "../../api/meetingservice";
 import availableMemberService from "../../api/availableMemberService";
 import assignedRoleService from "../../api/assignedRoleService";
+import speakerDataService from "../../api/speakerDataService";
 import apiService from "../../api/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 
@@ -72,12 +73,13 @@ const formatDateTime = (m) => {
 export default function MeetingDetails() {
   const { meetingId } = useParams();
   const navigate = useNavigate();
-  const { isVPEducation } = useAuth();
+  const { isVPEducation, user } = useAuth();
   const [meeting, setMeeting] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [availableMembers, setAvailableMembers] = useState([]);
   const [assignedRoles, setAssignedRoles] = useState([]);
+  const [speakerData, setSpeakerData] = useState([]);
   const [allMembers, setAllMembers] = useState([]);
   const [openPanels, setOpenPanels] = useState({
     AVAILABLE: false,
@@ -88,6 +90,37 @@ export default function MeetingDetails() {
   // Modal state for viewing category lists
   const [showModal, setShowModal] = useState(false);
   const [modalCategory, setModalCategory] = useState(null);
+
+  // Helper to resolve current user's memberId using auth and roster
+  const getCurrentUserMemberId = () => {
+    const uid = user?.memberId || user?.id || user?.userId;
+    if (uid) return String(uid);
+    const email = String(user?.email || '').toLowerCase();
+    const name = String(user?.name || user?.memberName || '').toLowerCase();
+    if (Array.isArray(allMembers) && allMembers.length > 0) {
+      if (email) {
+        const mByEmail = allMembers.find(x => String(x.email || '').toLowerCase() === email);
+        if (mByEmail?.memberId) return String(mByEmail.memberId);
+      }
+      if (name) {
+        const mByName = allMembers.find(x => String(x.memberName || x.name || '').toLowerCase() === name);
+        if (mByName?.memberId) return String(mByName.memberId);
+      }
+    }
+    return '';
+  };
+
+  const deleteOwnAvailability = async (amId) => {
+    if (!amId) return;
+    if (!window.confirm('Are you sure you want to delete your availability?')) return;
+    try {
+      await availableMemberService.deleteAvailableMember(amId);
+      // refresh available members list
+      setAvailableMembers(prev => prev.filter(x => x.id !== amId));
+    } catch (e) {
+      console.warn('Failed to delete availability', e);
+    }
+  };
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -102,6 +135,16 @@ export default function MeetingDetails() {
         setError("Failed to load meeting.");
         setLoading(false);
         return;
+      }
+
+      // Fetch speaker data for this meeting
+      try {
+        const sdRes = await speakerDataService.getByMeeting(meetingId);
+        const sdArr = sdRes?.data?.data ?? sdRes?.data ?? [];
+        setSpeakerData(Array.isArray(sdArr) ? sdArr : []);
+      } catch (e) {
+        console.warn('Failed to fetch speaker data', e);
+        setSpeakerData([]);
       }
 
       // Build candidate IDs to try (URL id, meeting.meetingId, meeting.id, and versions without 'M' prefix)
@@ -325,9 +368,55 @@ export default function MeetingDetails() {
               Assign Roles
             </Link>
           )}
-          <Link to={`/available-members/add?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`} className="btn btn-primary">
-            + Add Availability
-          </Link>
+          {(() => {
+            const currentMemberId = getCurrentUserMemberId();
+            const myRecord = (availableMembers || []).find(am => String(am.memberId) === String(currentMemberId));
+            if (myRecord) {
+              return (
+                <div className="btn-group" role="group">
+                  <Link to={`/available-members/edit/${myRecord.id}`} className="btn btn-outline-primary">Edit My Availability</Link>
+                  <button type="button" className="btn btn-outline-danger" onClick={() => deleteOwnAvailability(myRecord.id)}>Delete</button>
+                </div>
+              );
+            }
+            return (
+              <Link to={`/available-members/add?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`} className="btn btn-primary">
+                + Add Availability
+              </Link>
+            );
+          })()}
+          {(() => {
+            // Add/Edit Speech button: only for Upcoming meetings and when user is assigned as Speaker
+            if (status !== 'Upcoming') return null;
+            const currentMemberId = getCurrentUserMemberId();
+            const norm = (v) => String(v ?? '').trim().toLowerCase();
+            const isSpeakerAssignment = (r) => {
+              const roleText = norm(r.roleName || r.role || r.roleId || '');
+              // consider aliases like 'Speaker 1', 'SPEAKER', 'speech'
+              return roleText.includes('speaker');
+            };
+            const assignedToMe = (assignedRoles || []).some(r => String(r.memberId) === String(currentMemberId) && isSpeakerAssignment(r));
+            if (!assignedToMe) return null;
+
+            // Determine if I already submitted a speech
+            const mySpeech = (speakerData || []).find(s =>
+              String(s.memberId) === String(currentMemberId) || norm(s.memberName) === norm(user?.name || user?.memberName || '')
+            );
+            if (mySpeech) {
+              const sid = mySpeech.speakerId || mySpeech.id;
+              if (!sid) return null;
+              return (
+                <Link to={`/speaker-data/edit/${encodeURIComponent(sid)}`} className="btn btn-outline-warning">
+                  Edit My Speech
+                </Link>
+              );
+            }
+            return (
+              <Link to={`/speaker-data/add?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`} className="btn btn-outline-success">
+                + Add Speech
+              </Link>
+            );
+          })()}
           <span className={
             status === "Upcoming" ? "badge bg-info fs-6 px-3 py-2" :
             status === "Ongoing" ? "badge bg-success fs-6 px-3 py-2" :
@@ -422,6 +511,47 @@ export default function MeetingDetails() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Submitted Speeches (visible to all) */}
+      <div className="mt-4">
+        <h5 className="fw-bold mb-2">Submitted Speeches</h5>
+        {(!speakerData || speakerData.length === 0) ? (
+          <div className="text-muted">No speeches submitted yet.</div>
+        ) : (
+          <div className="row g-3">
+            {speakerData.map((s) => (
+              <div className="col-md-6" key={s.speakerId || s.id}>
+                <div className="card shadow-sm h-100">
+                  <div className="card-body">
+                    <div className="d-flex justify-content-between align-items-start">
+                      <div>
+                        <div className="text-muted small">Speaker</div>
+                        <div className="fw-bold">{s.memberName || s.memberId}</div>
+                      </div>
+                      {(s.minSpeechTime || s.maxSpeechTime) && (
+                        <span className="badge bg-light text-dark">
+                          {s.minSpeechTime || 0} - {s.maxSpeechTime || 0} min
+                        </span>
+                      )}
+                    </div>
+                    {s.speechTitle && <div className="mt-2"><span className="text-muted small">Title: </span><span className="fw-semibold">{s.speechTitle}</span></div>}
+                    {s.projectTitle && <div className="mt-1"><span className="text-muted small">Project: </span>{s.projectTitle}</div>}
+                    {(s.pathwaysTrack || s.level) && (
+                      <div className="mt-1 text-muted small">{s.pathwaysTrack || 'Pathways'}{s.level ? ` • Level ${s.level}` : ''}</div>
+                    )}
+                    {s.speechObjectives && (
+                      <div className="mt-2">
+                        <div className="text-muted small">Objectives</div>
+                        <div>{s.speechObjectives}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Modal for viewing member lists */}

@@ -51,6 +51,8 @@ import AvailableMemberForm from "./components/availablemember/AvailableMemberFor
 // Assigned Roles components
 import AssignRolesForm from "./components/assignedRoles/AssignRolesForm";
 import AssignedRolesTable from "./components/assignedRoles/AssignedRolesTable";
+// Speaker data
+import SpeakerDataForm from "./components/speaker/SpeakerDataForm.jsx";
 
 const Home = () => {
   const { isVPEducation } = useAuth();
@@ -169,6 +171,24 @@ function App() {
                       element={
                         <RequireAuth>
                           <AssignedRolesTable />
+                        </RequireAuth>
+                      }
+                    />
+
+                    {/* Speaker Data Routes */}
+                    <Route
+                      path="/speaker-data/add"
+                      element={
+                        <RequireAuth>
+                          <SpeakerDataForm />
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/speaker-data/edit/:speakerId"
+                      element={
+                        <RequireAuth>
+                          <SpeakerDataForm />
                         </RequireAuth>
                       }
                     />
