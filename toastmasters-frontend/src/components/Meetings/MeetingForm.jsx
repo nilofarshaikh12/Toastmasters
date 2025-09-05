@@ -250,7 +250,7 @@ function MeetingForm() {
             : meeting.date,
         startTime: meeting.startTime,
         endTime: meeting.endTime,
-        theme: meeting.theme,
+        theme: (meeting.theme && meeting.theme.trim()) ? meeting.theme.trim() : null,
         venue: meeting.venue,
         category: normalizeCategoryForBackend(meeting.category),
         roles: Array.isArray(meeting.roles)
@@ -384,7 +384,6 @@ function MeetingForm() {
               name="theme"
               value={meeting.theme}
               onChange={handleChange}
-              required
             />
           </div>
           <div className="col-md-6">

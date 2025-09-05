@@ -53,6 +53,8 @@ import AssignRolesForm from "./components/assignedRoles/AssignRolesForm";
 import AssignedRolesTable from "./components/assignedRoles/AssignedRolesTable";
 // Speaker data
 import SpeakerDataForm from "./components/speaker/SpeakerDataForm.jsx";
+// Grammarian
+import GrammarianForm from "./components/grammarian/GrammarianForm.jsx";
 
 const Home = () => {
   const { isVPEducation } = useAuth();
@@ -189,6 +191,23 @@ function App() {
                       element={
                         <RequireAuth>
                           <SpeakerDataForm />
+                        </RequireAuth>
+                      }
+                    />
+                    {/* Grammarian Routes */}
+                    <Route
+                      path="/grammarian/add"
+                      element={
+                        <RequireAuth>
+                          <GrammarianForm />
+                        </RequireAuth>
+                      }
+                    />
+                    <Route
+                      path="/grammarian/edit/:grammarianId"
+                      element={
+                        <RequireAuth>
+                          <GrammarianForm />
                         </RequireAuth>
                       }
                     />

@@ -4,6 +4,7 @@ import meetingService from "../../api/meetingservice";
 import availableMemberService from "../../api/availableMemberService";
 import assignedRoleService from "../../api/assignedRoleService";
 import speakerDataService from "../../api/speakerDataService";
+import grammarianService from "../../api/grammarianService";
 import apiService from "../../api/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 
@@ -80,6 +81,7 @@ export default function MeetingDetails() {
   const [availableMembers, setAvailableMembers] = useState([]);
   const [assignedRoles, setAssignedRoles] = useState([]);
   const [speakerData, setSpeakerData] = useState([]);
+  const [grammarianData, setGrammarianData] = useState([]);
   const [allMembers, setAllMembers] = useState([]);
   const [openPanels, setOpenPanels] = useState({
     AVAILABLE: false,
@@ -90,6 +92,25 @@ export default function MeetingDetails() {
   // Modal state for viewing category lists
   const [showModal, setShowModal] = useState(false);
   const [modalCategory, setModalCategory] = useState(null);
+
+  // Group Grammarian WOD/POD entries by member so both appear in the same card
+  const grammarianGrouped = useMemo(() => {
+    try {
+      const map = new Map();
+      (grammarianData || []).forEach(g => {
+        const key = String(g.memberId || g.memberName || '').trim();
+        if (!key) return;
+        const existing = map.get(key) || { memberId: g.memberId, memberName: g.memberName, WOD: null, POD: null };
+        const type = String(g.type || '').toUpperCase();
+        const rec = { id: g.grammarianId || g.id, word: g.word, meaning: g.meaning, example: g.example, type };
+        if (type === 'POD') existing.POD = rec; else existing.WOD = rec;
+        map.set(key, existing);
+      });
+      return Array.from(map.values());
+    } catch {
+      return [];
+    }
+  }, [grammarianData]);
 
   // Helper to resolve current user's memberId using auth and roster
   const getCurrentUserMemberId = () => {
@@ -108,6 +129,18 @@ export default function MeetingDetails() {
       }
     }
     return '';
+  };
+
+  // Resolve a member's display name from roster by their memberId
+  const getMemberNameById = (id) => {
+    try {
+      const mid = String(id || '').trim();
+      if (!mid) return '';
+      const m = (allMembers || []).find(x => String(x.memberId) === mid);
+      return m?.memberName || '';
+    } catch {
+      return '';
+    }
   };
 
   const deleteOwnAvailability = async (amId) => {
@@ -145,6 +178,16 @@ export default function MeetingDetails() {
       } catch (e) {
         console.warn('Failed to fetch speaker data', e);
         setSpeakerData([]);
+      }
+
+      // Fetch grammarian data for this meeting (WOD/POD)
+      try {
+        const gdRes = await grammarianService.getByMeeting(meetingId);
+        const gdArr = gdRes?.data?.data ?? gdRes?.data ?? [];
+        setGrammarianData(Array.isArray(gdArr) ? gdArr : []);
+      } catch (e) {
+        console.warn('Failed to fetch grammarian data', e);
+        setGrammarianData([]);
       }
 
       // Build candidate IDs to try (URL id, meeting.meetingId, meeting.id, and versions without 'M' prefix)
@@ -386,6 +429,24 @@ export default function MeetingDetails() {
             );
           })()}
           {(() => {
+            // Manage Grammarian WOD/POD (both in one form): only for Upcoming meetings and when user is assigned as Grammarian
+            if (status !== 'Upcoming') return null;
+            const currentMemberId = getCurrentUserMemberId();
+            const norm = (v) => String(v ?? '').trim().toLowerCase();
+            const isGrammarianAssignment = (r) => {
+              const roleText = norm(r.roleName || r.role || r.roleId || '');
+              return roleText.includes('grammarian');
+            };
+            const assignedToMe = (assignedRoles || []).some(r => String(r.memberId) === String(currentMemberId) && isGrammarianAssignment(r));
+            if (!assignedToMe) return null;
+
+            return (
+              <Link to={`/grammarian/add?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`} className="btn btn-outline-success">
+                Manage WOD/POD
+              </Link>
+            );
+          })()}
+          {(() => {
             // Add/Edit Speech button: only for Upcoming meetings and when user is assigned as Speaker
             if (status !== 'Upcoming') return null;
             const currentMemberId = getCurrentUserMemberId();
@@ -546,6 +607,75 @@ export default function MeetingDetails() {
                         <div>{s.speechObjectives}</div>
                       </div>
                     )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Grammarian WOD/POD (visible to all) - grouped per member */}
+      <div className="mt-4">
+        <h5 className="fw-bold mb-2">Grammarian WOD/POD</h5>
+        {(!grammarianGrouped || grammarianGrouped.length === 0) ? (
+          <div className="text-muted">No WOD/POD submitted yet.</div>
+        ) : (
+          <div className="row g-3">
+            {grammarianGrouped.map((grp, idx) => (
+              <div className="col-md-6" key={grp.memberId || idx}>
+                <div className="card shadow-sm h-100">
+                  <div className="card-body">
+                    <div className="mb-2">
+                      <div className="text-muted small">Grammarian</div>
+                      <div className="fw-bold">{grp.memberName || getMemberNameById(grp.memberId) || grp.memberId}</div>
+                    </div>
+                    <div className="row g-3">
+                      <div className="col-12 col-lg-6">
+                        <div className="border rounded p-2 h-100">
+                          <div className="d-flex align-items-center gap-2 mb-1">
+                            <span className="badge bg-primary">WOD</span>
+                            <span className="fw-semibold">Word of the Day</span>
+                          </div>
+                          {grp.WOD ? (
+                            <>
+                              {grp.WOD.word && <div><span className="text-muted small">Word: </span><span className="fw-semibold">{grp.WOD.word}</span></div>}
+                              {grp.WOD.meaning && <div className="mt-1"><span className="text-muted small">Meaning: </span>{grp.WOD.meaning}</div>}
+                              {grp.WOD.example && (
+                                <div className="mt-1">
+                                  <div className="text-muted small">Example</div>
+                                  <div>{grp.WOD.example}</div>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="text-muted small">Not provided</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="col-12 col-lg-6">
+                        <div className="border rounded p-2 h-100">
+                          <div className="d-flex align-items-center gap-2 mb-1">
+                            <span className="badge bg-info text-dark">POD</span>
+                            <span className="fw-semibold">Phrase of the Day</span>
+                          </div>
+                          {grp.POD ? (
+                            <>
+                              {grp.POD.word && <div><span className="text-muted small">Phrase: </span><span className="fw-semibold">{grp.POD.word}</span></div>}
+                              {grp.POD.meaning && <div className="mt-1"><span className="text-muted small">Meaning: </span>{grp.POD.meaning}</div>}
+                              {grp.POD.example && (
+                                <div className="mt-1">
+                                  <div className="text-muted small">Example</div>
+                                  <div>{grp.POD.example}</div>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="text-muted small">Not provided</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
