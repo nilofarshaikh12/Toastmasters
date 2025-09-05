@@ -6,6 +6,7 @@ import Swal from "sweetalert2";
 import assignedRoleService from "../../api/assignedRoleService.js";
 import meetingService from "../../api/meetingservice.js";
 import { useAuth } from "../../context/AuthContext.jsx";
+import SpeakerEvaluatorTable from "../speaker-evaluator/SpeakerEvaluatorTable.jsx";
 
 const AssignedRolesTable = () => {
   const { meetingId } = useParams();
@@ -190,6 +191,12 @@ const AssignedRolesTable = () => {
           )}
         </tbody>
       </table>
+
+      {/* Speaker-Evaluator mapping table below Assigned Roles */}
+      <div className="mt-4">
+        <h4 className="fw-bold mb-2">Speakers and Their Evaluators</h4>
+        <SpeakerEvaluatorTable meetingId={meetingId} canAssign={isVPEducation} />
+      </div>
     </div>
   );
 };

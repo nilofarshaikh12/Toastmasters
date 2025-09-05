@@ -7,6 +7,7 @@ import speakerDataService from "../../api/speakerDataService";
 import grammarianService from "../../api/grammarianService";
 import apiService from "../../api/api.js";
 import { useAuth } from "../../context/AuthContext.jsx";
+import SpeakerEvaluatorTable from "../speaker-evaluator/SpeakerEvaluatorTable.jsx";
 
 const getMeetingStatus = (m) => {
   try {
@@ -613,6 +614,14 @@ export default function MeetingDetails() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Speakers and Evaluators mapping (VP Education can assign) */}
+      <div className="mt-4">
+        <SpeakerEvaluatorTable
+          meetingId={meeting.meetingId || meetingId}
+          canAssign={isVPEducation}
+        />
       </div>
 
       {/* Grammarian WOD/POD (visible to all) - grouped per member */}
