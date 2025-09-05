@@ -6,6 +6,7 @@ import com.example.toastMasters.dto.MeetingResponseDTO;
 import com.example.toastMasters.dto.MeetingRoleDTO;
 import com.example.toastMasters.entity.Meeting;
 import com.example.toastMasters.entity.MeetingRole;
+import com.example.toastMasters.exceptions.DuplicateThemeException;
 import com.example.toastMasters.exceptions.MeetingNotFoundException;
 import com.example.toastMasters.mapper.MeetingMapper;
 import com.example.toastMasters.repositories.MeetingRepository;
@@ -27,16 +28,23 @@ public class MeetingServiceImpl implements MeetingService{
 
     @Override
     public MeetingResponseDTO addMeeting(MeetingRequestDTO requestDTO) {
-        Meeting meeting = meetingMapper.toEntity(requestDTO);
-        meeting.setDeleted(false);
 
-        if (meeting.getRoles() != null) {
-            meeting.getRoles().forEach(role -> role.setMeeting(meeting));
+        if (requestDTO.getTheme() != null && !requestDTO.getTheme().trim().isEmpty()) {
+            if (meetingRepository.existsByThemeIgnoreCaseAndDeletedFalse(requestDTO.getTheme().trim())) {
+                throw new DuplicateThemeException("Meeting theme already exists!");
+            }
+        }
+            Meeting meeting = meetingMapper.toEntity(requestDTO);
+            meeting.setDeleted(false);
+
+            if (meeting.getRoles() != null) {
+                meeting.getRoles().forEach(role -> role.setMeeting(meeting));
+            }
+
+            Meeting savedMeeting = meetingRepository.save(meeting);
+            return meetingMapper.toResponseDTO(savedMeeting);
         }
 
-        Meeting savedMeeting = meetingRepository.save(meeting);
-        return meetingMapper.toResponseDTO(savedMeeting);
-    }
 
     @Override
     public List<MeetingResponseDTO> getAllMeetings() {
@@ -66,7 +74,14 @@ public class MeetingServiceImpl implements MeetingService{
             throw new MeetingNotFoundException(MeetingConstants.MEETING_NOT_FOUND);
         }
 
-        // ✅ Update only non-null fields
+        if (meetingRequestDTO.getTheme() != null && !meetingRequestDTO.getTheme().trim().isEmpty()) {
+            if (meetingRepository.existsByThemeIgnoreCaseAndDeletedFalseAndMeetingIdNot(meetingRequestDTO.getTheme().trim(), meetingId)) {
+                throw new DuplicateThemeException("Meeting theme already exists!");
+            }
+            meeting.setTheme(meetingRequestDTO.getTheme().trim());
+        }
+
+        //  Update only non-null fields
         if (meetingRequestDTO.getDate() != null) {
             meeting.setDate(meetingRequestDTO.getDate());
         }
@@ -86,7 +101,7 @@ public class MeetingServiceImpl implements MeetingService{
             meeting.setCategory(meetingRequestDTO.getCategory());
         }
 
-        // ✅ Handle roles update safely
+        //  Handle roles update safely
         if (meetingRequestDTO.getRoles() != null) {
             try {
                 if (meeting.getRoles() == null) {

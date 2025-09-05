@@ -1,9 +1,7 @@
 package com.example.toastMasters.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -28,6 +26,7 @@ public class Meeting {
     private LocalDate date;
     private LocalTime startTime;
     private LocalTime endTime;
+
     private String theme;
     private String venue;
     private String category;
@@ -36,5 +35,7 @@ public class Meeting {
     private boolean deleted = false;
 
     @OneToMany(mappedBy = "meeting", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private List<MeetingRole> roles = new ArrayList<>();
 }

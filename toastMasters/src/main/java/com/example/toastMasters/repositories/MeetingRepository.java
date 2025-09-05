@@ -9,4 +9,6 @@ import java.util.List;
 public interface MeetingRepository extends JpaRepository<Meeting,String> {
     List<Meeting> findAllByDeletedFalse();
     Meeting findByMeetingIdAndDeletedFalse(String meetingId);
+    boolean existsByThemeIgnoreCaseAndDeletedFalse(String theme);
+    boolean existsByThemeIgnoreCaseAndDeletedFalseAndMeetingIdNot(String theme, String meetingId);
 }

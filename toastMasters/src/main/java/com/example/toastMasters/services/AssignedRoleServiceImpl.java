@@ -218,6 +218,8 @@ public class AssignedRoleServiceImpl implements AssignedRoleService {
 
         switch (meetingCategory.toUpperCase()) {
             case "REGULAR":
+            case "CONTEST":
+            case "SPECIAL":
             case "REGULAR_MEETING":
             case "SPECIAL_MILESTONE_MEETING":
                 return lowerRoleName.equals("speaker") || lowerRoleName.equals("evaluator");
