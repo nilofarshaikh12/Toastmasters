@@ -405,11 +405,27 @@ export default function MeetingDetails() {
         <div className="d-flex gap-2">
           <Link className="btn btn-outline-secondary" to="/meetings">Back to Meetings</Link>
           {isVPEducation && (
+            <>
+              <Link
+                to={`/available-members?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`}
+                className="btn btn-success"
+              >
+                Assign Roles
+              </Link>
+              <Link
+                to={`/agenda/complete/${encodeURIComponent(meeting.meetingId || meetingId)}`}
+                className="btn btn-outline-info"
+              >
+                <i className="fas fa-list me-2"></i>View Agenda
+              </Link>
+            </>
+          )}
+          {!isVPEducation && (
             <Link
-              to={`/available-members?meetingId=${encodeURIComponent(meeting.meetingId || meetingId)}`}
-              className="btn btn-success"
+              to={`/agenda/complete/${encodeURIComponent(meeting.meetingId || meetingId)}`}
+              className="btn btn-outline-info"
             >
-              Assign Roles
+              <i className="fas fa-list me-2"></i>View Agenda
             </Link>
           )}
           {(() => {
@@ -616,14 +632,6 @@ export default function MeetingDetails() {
         )}
       </div>
 
-      {/* Speakers and Evaluators mapping (VP Education can assign) */}
-      <div className="mt-4">
-        <SpeakerEvaluatorTable
-          meetingId={meeting.meetingId || meetingId}
-          canAssign={isVPEducation}
-        />
-      </div>
-
       {/* Grammarian WOD/POD (visible to all) - grouped per member */}
       <div className="mt-4">
         <h5 className="fw-bold mb-2">Grammarian WOD/POD</h5>
@@ -693,6 +701,14 @@ export default function MeetingDetails() {
         )}
       </div>
 
+         {/* Speakers and Evaluators mapping (VP Education can assign) */}
+         <div className="mt-4">
+        <SpeakerEvaluatorTable
+          meetingId={meeting.meetingId || meetingId}
+          canAssign={isVPEducation}
+        />
+      </div>
+      
       {/* Modal for viewing member lists */}
       {showModal && (
         <div className="modal d-block" tabIndex="-1" role="dialog" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>

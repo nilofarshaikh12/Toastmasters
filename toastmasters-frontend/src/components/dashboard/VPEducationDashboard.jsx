@@ -67,6 +67,23 @@ const VPEducationDashboard = () => {
             </div>
           </div>
         </div>
+        
+        <div className="col-md-12 mb-4">
+          <div className="card h-100">
+            <div className="card-body">
+              <h5 className="card-title">Meeting Agenda Management</h5>
+              <p className="card-text">Create and manage comprehensive meeting agendas with all related data including speeches, grammarian content, and club information.</p>
+              <div className="btn-group">
+                <Link to="/agenda-list" className="btn btn-primary">
+                  <i className="fas fa-list me-2"></i>Manage Agendas
+                </Link>
+                <Link to="/agenda/new" className="btn btn-outline-primary">
+                  <i className="fas fa-plus me-2"></i>Add Agenda Item
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
