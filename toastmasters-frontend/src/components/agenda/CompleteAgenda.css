@@ -126,6 +126,35 @@
   margin-bottom: 0;
 }
 
+/* Time cell styling in Meeting Agenda */
+.agenda-grid td:nth-child(2) input[type="text"], /* Min Time input */
+.agenda-grid td:nth-child(3) input[type="text"], /* Avg Time input */
+.agenda-grid td:nth-child(4) input[type="text"] { /* Max Time input */
+  font-weight: 500;
+  text-align: center;
+  width: 100%;
+}
+
+.agenda-grid td:nth-child(2) input[type="text"] { /* Min Time input */
+  background-color: rgba(76, 175, 80, 0.1); /* Green */
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.agenda-grid td:nth-child(3) input[type="text"] { /* Avg Time input */
+  background-color: rgba(255, 193, 7, 0.15); /* Yellow/Amber */
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.agenda-grid td:nth-child(4) input[type="text"] { /* Max Time input */
+  background-color: rgba(244, 67, 54, 0.1); /* Red */
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+/* Keep the original style for section headers */
+.agenda-grid tr.table-secondary td {
+  background-color: #e9ecef !important;
+}
+
 .table th {
   background-color: #fafafa;
   border-top: none;
@@ -222,6 +251,113 @@
 }
 
 /* Grammarian Cards */
+/* Presenter Dropdown Styles */
+/* Presenter column styles */
+.presenter-cell {
+  min-width: 250px;
+  max-width: 300px;
+}
+
+.presenter-select {
+  width: 100%;
+  min-width: 200px;
+  font-size: 14px;
+}
+
+.presenter-name {
+  padding: 0.375rem 0.75rem;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+}
+
+/* Ensure table cells don't wrap unexpectedly */
+.agenda-grid td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+/* Style for unavailable options */
+.unavailable-option {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.presenter-select option {
+  padding: 8px 12px;
+  white-space: normal;
+  line-height: 1.5;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* Style for member names */
+.presenter-select option {
+  font-weight: 500;
+  color: #212529;
+}
+
+/* Style for role text */
+.presenter-select option::after {
+  content: attr(data-roles);
+  display: inline-block;
+  margin-left: 8px;
+  font-weight: normal;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Style for available members with roles */
+.presenter-select option:not([value=""]) {
+  position: relative;
+  padding-left: 24px;
+}
+
+/* Add a dot before available members */
+.presenter-select option:not([value=""])::before {
+  content: '•';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #28a745;
+  font-size: 16px;
+}
+
+.presenter-select optgroup {
+  font-style: normal;
+  font-weight: 600;
+  color: #495057;
+  background-color: #f8f9fa;
+  padding: 8px 12px;
+  border-top: 1px solid #dee2e6;
+}
+
+.presenter-select option[value=""] {
+  color: #6c757d;
+  font-style: italic;
+  border-bottom: 1px solid #dee2e6;
+}
+
+/* Style for unavailable members */
+.presenter-select .unavailable-option {
+  color: #6c757d;
+  font-style: italic;
+  padding-left: 24px;
+}
+
+/* Hover effect for better UX */
+.presenter-select option:not([value=""]):hover {
+  background-color: #f8f9fa;
+}
+
+/* Make the dropdown wider when expanded */
+.presenter-select:focus {
+  min-width: 400px;
+  transition: min-width 0.3s ease;
+}
+
 .grammarian-card {
   background: linear-gradient(135deg, #f3e5f5 0%, #fce4ec 100%);
   border: 2px solid #f8bbd9;

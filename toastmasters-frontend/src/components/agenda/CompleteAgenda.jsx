@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import agendaService from "../../api/agendaService";
 import meetingService from "../../api/meetingservice";
 import apiService from "../../api/api";
+import availableMemberService from "../../api/availableMemberService";
+import assignedRoleService from "../../api/assignedRoleService";
 import { useAuth } from "../../context/AuthContext";
 import Swal from "sweetalert2";
+// PDF generation will be handled directly in the component
 import './CompleteAgenda.css';
 import toastmastersLogo from '../../assets/img/image.png';
 
@@ -26,14 +29,366 @@ const CompleteAgenda = () => {
   });
 
   const [members, setMembers] = useState([]);
+  const [availableMembers, setAvailableMembers] = useState([]);
+  const [assignedRoles, setAssignedRoles] = useState({});
 
   const [editSection, setEditSection] = useState(null);
+  // Drag-and-drop state for Meeting Agenda rows
+  const [dragIndex, setDragIndex] = useState(null);
+  // Drag-and-drop state for Speech block rows
+  const [speechDragIndex, setSpeechDragIndex] = useState(null);
   const [speechesInsertIndex, setSpeechesInsertIndex] = useState(null); // where to inject speeches
   const [selectedRowRef, setSelectedRowRef] = useState(null); // { zone: 'before'|'after'|'speech', index: number|null }
+  const agendaRef = useRef(null);
+
+  const loadScript = (src) => {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${src}"]`)) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+      document.head.appendChild(script);
+    });
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!agendaRef.current) {
+      Swal.fire('Error', 'Agenda content not found', 'error');
+      return;
+    }
+
+    const loadingSwal = Swal.fire({
+      title: 'Generating PDF',
+      html: 'Preparing document...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+
+    try {
+      // Load scripts from CDN
+      await loadingSwal.update({ html: 'Loading PDF tools...' });
+      
+      await Promise.all([
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+        loadScript('https://html2canvas.hertzen.com/dist/html2canvas.min.js')
+      ]);
+
+      const { jsPDF } = window.jspdf;
+      const html2canvas = window.html2canvas;
+
+      // Create a clean container for the PDF content
+      const printContainer = document.createElement('div');
+      printContainer.style.width = '210mm';
+      printContainer.style.padding = '15mm';
+      printContainer.style.margin = '0 auto';
+      printContainer.style.backgroundColor = 'white';
+      printContainer.style.boxSizing = 'border-box';
+      printContainer.style.fontFamily = 'Arial, sans-serif';
+
+      // Clone the agenda content
+      const element = agendaRef.current.cloneNode(true);
+      
+      // Remove interactive elements
+      const elementsToRemove = element.querySelectorAll(
+        'button, .btn, .no-print, .edit-btn, [onclick], .action-buttons, .drag-handle, .speech-actions, .agenda-actions, .agenda-controls, .print-hide'
+      );
+      elementsToRemove.forEach(el => el.remove());
+
+      // Add print-specific styles
+      const style = document.createElement('style');
+      style.textContent = `
+        @page { 
+          margin: 0;
+          size: A4 portrait;
+        }
+        body { 
+          margin: 0; 
+          padding: 0; 
+          background: white;
+          -webkit-print-color-adjust: exact !important;
+          color-adjust: exact !important;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 15px;
+        }
+        th, td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+        }
+        th {
+          background-color: #f2f2f2;
+        }
+        .agenda-header {
+          text-align: center;
+          margin-bottom: 20px;
+        }
+        .agenda-header h2 {
+          margin: 0;
+          color: #2c3e50;
+        }
+        .agenda-date {
+          font-size: 1.1em;
+          color: #555;
+          margin: 10px 0;
+        }
+      `;
+
+      // Create a temporary container
+      const tempDiv = document.createElement('div');
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px';
+      tempDiv.style.width = '210mm';
+      tempDiv.appendChild(printContainer);
+      printContainer.appendChild(element);
+      document.body.appendChild(tempDiv);
+      document.head.appendChild(style);
+
+      try {
+        await loadingSwal.update({ html: 'Generating PDF...' });
+        
+        // Calculate content height for proper scaling
+        const contentHeight = element.scrollHeight;
+        const pageHeight = 297; // A4 height in mm
+        const scale = (pageHeight - 30) / (contentHeight * 0.35); // Convert px to mm with some padding
+        
+        const canvas = await html2canvas(element, {
+          scale: 1.5, // Slightly higher resolution
+          useCORS: true,
+          logging: true,
+          allowTaint: true,
+          scrollX: 0,
+          scrollY: 0,
+          width: element.offsetWidth,
+          height: contentHeight,
+          windowWidth: element.scrollWidth,
+          windowHeight: contentHeight,
+          backgroundColor: '#FFFFFF'
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4',
+          compress: true
+        });
+
+        // Calculate dimensions to fit page
+        const pageWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margins
+        const pageHeightPdf = pdf.internal.pageSize.getHeight() - 20;
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfHeight = (imgProps.height * pageWidth) / imgProps.width;
+
+        // Add first page
+        pdf.addImage(imgData, 'PNG', 10, 10, pageWidth, pdfHeight);
+        
+        // Add additional pages if needed
+        let heightLeft = pdfHeight - pageHeightPdf;
+        let position = 10 - pageHeightPdf;
+        
+        while (heightLeft > 0) {
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 10, position, pageWidth, pdfHeight);
+          heightLeft -= pageHeightPdf;
+          position -= pageHeightPdf;
+        }
+
+        const meetingDate = meetingData?.meetingDate 
+          ? new Date(meetingData.meetingDate).toISOString().split('T')[0]
+          : 'agenda';
+        
+        pdf.save(`Toastmasters-Agenda-${meetingDate}.pdf`);
+        
+      } finally {
+        // Clean up
+        document.body.removeChild(tempDiv);
+        document.head.removeChild(style);
+      }
+      
+      await loadingSwal.close();
+      
+    } catch (error) {
+      console.error('PDF Generation Error:', error);
+      
+      if (Swal.isVisible()) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'PDF Generation Failed',
+          text: 'An error occurred while generating the PDF. Please try again.',
+          footer: error.message ? `Error: ${error.message}` : ''
+        });
+      }
+    }
+  };
 
   useEffect(() => {
-    if (meetingId) fetchCompleteAgendaData();
+    if (meetingId) {
+      console.log('Meeting ID from URL params:', meetingId);
+      fetchCompleteAgendaData();
+      fetchAvailableMembers();
+      fetchAssignedRoles();
+    }
   }, [meetingId]);
+
+  // Fetch available members for the meeting using robust method
+  const fetchAvailableMembers = async () => {
+    try {
+      console.log('Fetching available members for meeting:', meetingId);
+      const response = await availableMemberService.getAvailableMembersByMeetingRobust(meetingId).catch(() => null);
+      
+      if (!response) {
+        console.log('Available members endpoint not available');
+        return;
+      }
+      
+      console.log('Available members response:', response);
+      
+      // Handle both array and object responses
+      let members = [];
+      if (Array.isArray(response)) {
+        members = response;
+      } else if (Array.isArray(response?.data)) {
+        members = response.data;
+      }
+      
+      console.log('Parsed available members:', members);
+      
+      // Create a map of memberId to their preferred roles
+      const rolesByMember = {};
+      members.forEach(member => {
+        if (member.memberId) {
+          if (!rolesByMember[member.memberId]) {
+            rolesByMember[member.memberId] = [];
+          }
+          // Add roleName if available
+          if (member.roleName) {
+            rolesByMember[member.memberId].push(member.roleName);
+          }
+          // Add preferredRoles if available
+          if (Array.isArray(member.preferredRoles)) {
+            member.preferredRoles.forEach(role => {
+              if (!rolesByMember[member.memberId].includes(role)) {
+                rolesByMember[member.memberId].push(role);
+              }
+            });
+          }
+        }
+      });
+      
+      // Update assigned roles with any new information
+      if (Object.keys(rolesByMember).length > 0) {
+        console.log('Updating assigned roles from available members:', rolesByMember);
+        setAssignedRoles(prevRoles => ({
+          ...prevRoles,
+          ...rolesByMember
+        }));
+      }
+      
+      // Transform the response to match the expected format
+      const formattedMembers = members.map(member => ({
+        memberId: member.memberId,
+        memberName: member.memberName || `Member ${member.memberId}`,
+        availabilityStatus: member.availabilityStatus || 'UNKNOWN',
+        preferredRoles: member.preferredRoles || []
+      }));
+      
+      console.log('Setting available members:', formattedMembers);
+      setAvailableMembers(formattedMembers);
+      
+    } catch (error) {
+      console.error('Error in fetchAvailableMembers:', error);
+      // Don't reset available members or assigned roles as they might be set by other sources
+    }
+  };
+
+  // Helper function to get role names from role objects or strings
+  const getRoleNames = (roles) => {
+    if (!roles) return [];
+    if (Array.isArray(roles)) {
+      return roles.map(role => {
+        if (typeof role === 'string') return role;
+        if (role.roleName) return role.roleName;
+        if (role.name) return role.name;
+        return '';
+      }).filter(Boolean);
+    }
+    // Handle case where roles is an object with role names as values
+    if (typeof roles === 'object') {
+      return Object.values(roles).flat().filter(Boolean);
+    }
+    return [];
+  };
+
+  // Fetch assigned roles for the meeting
+  const fetchAssignedRoles = async () => {
+    try {
+      console.log('Fetching assigned roles for meeting:', meetingId);
+      const response = await assignedRoleService.getAssignedRolesByMeeting(meetingId).catch(() => null);
+      
+      // If the endpoint is not available, we'll use the preferred roles from available members
+      if (!response) {
+        console.log('Assigned roles endpoint not available, using preferred roles instead');
+        return;
+      }
+      
+      console.log('Assigned roles response:', response);
+      
+      // The response is an object with a data property containing the array
+      const roles = Array.isArray(response.data) ? response.data : [];
+      console.log('Parsed assigned roles:', roles);
+      
+      const rolesByMember = {};
+      roles.forEach(role => {
+        if (role.memberId) {
+          if (!rolesByMember[role.memberId]) {
+            rolesByMember[role.memberId] = [];
+          }
+          // Handle both object and string role formats
+          if (role.roleName) {
+            rolesByMember[role.memberId].push(role.roleName);
+          } else if (role.role) {
+            rolesByMember[role.memberId].push(role.role);
+          } else if (role.name) {
+            rolesByMember[role.memberId].push(role.name);
+          } else if (typeof role === 'string') {
+            rolesByMember[role.memberId].push(role);
+          }
+        }
+      });
+      
+      // Only update if we found roles
+      if (Object.keys(rolesByMember).length > 0) {
+        console.log('Setting assigned roles:', rolesByMember);
+        setAssignedRoles(prevRoles => ({
+          ...prevRoles,
+          ...rolesByMember
+        }));
+      } else {
+        console.log('No roles found in the response');
+      }
+    } catch (error) {
+      console.error('Error fetching assigned roles:', error);
+      // Don't reset assigned roles here as they might have been set by fetchAvailableMembers
+    }
+  };
+
+  // Format member name with their roles
+  const getMemberWithRoles = (memberId) => {
+    const member = members.find(m => m.memberId === memberId);
+    if (!member) return 'Unknown Member';
+    
+    const roles = assignedRoles[memberId];
+    return roles && roles.length > 0 
+      ? `${member.memberName} (${getRoleNames(roles).join(', ')})`
+      : member.memberName;
+  };
 
   // Load roster for member selectors
   useEffect(() => {
@@ -167,6 +522,64 @@ const CompleteAgenda = () => {
       setSpeechesInsertIndex((speechesInsertIndex ?? 0) + 1);
     }
     return list;
+  };
+
+  // === Drag-and-Drop handlers for Meeting Agenda (non-speech rows) ===
+  const handleAgendaDragStart = (idx) => {
+    if (editSection !== 'agenda') return;
+    setDragIndex(idx);
+  };
+
+  const handleAgendaDragOver = (e) => {
+    if (editSection !== 'agenda') return;
+    e.preventDefault();
+  };
+
+  const handleAgendaDrop = (targetIdx) => {
+    if (editSection !== 'agenda') return;
+    if (dragIndex === null || dragIndex === targetIdx) return;
+    setAgendaJoinData((prev) => {
+      const list = [...(prev.agenda || [])];
+      const from = Math.min(Math.max(0, dragIndex), list.length - 1);
+      const to = Math.min(Math.max(0, targetIdx), list.length - 1);
+      const [moved] = list.splice(from, 1);
+      list.splice(to, 0, moved);
+      return { ...prev, agenda: list };
+    });
+    // Keep speeches block location consistent relative to rows
+    setSpeechesInsertIndex((oldIdx) => {
+      const oldVal = oldIdx ?? 0;
+      let newVal = oldVal;
+      if (dragIndex < oldVal && targetIdx >= oldVal) newVal = oldVal - 1; // row moved from before -> after
+      else if (dragIndex >= oldVal && targetIdx < oldVal) newVal = oldVal + 1; // row moved from after -> before
+      return Math.max(0, newVal);
+    });
+    setDragIndex(null);
+  };
+
+  // === Drag-and-Drop handlers for Speeches (within speech block only) ===
+  const handleSpeechDragStart = (idx) => {
+    if (editSection !== 'agenda') return;
+    setSpeechDragIndex(idx);
+  };
+
+  const handleSpeechDragOver = (e) => {
+    if (editSection !== 'agenda') return;
+    e.preventDefault();
+  };
+
+  const handleSpeechDrop = (targetIdx) => {
+    if (editSection !== 'agenda') return;
+    if (speechDragIndex === null || speechDragIndex === targetIdx) return;
+    setAgendaJoinData((prev) => {
+      const list = [...(prev.speakerSpeech || [])];
+      const from = Math.min(Math.max(0, speechDragIndex), list.length - 1);
+      const to = Math.min(Math.max(0, targetIdx), list.length - 1);
+      const [moved] = list.splice(from, 1);
+      list.splice(to, 0, moved);
+      return { ...prev, speakerSpeech: list };
+    });
+    setSpeechDragIndex(null);
   };
 
   const addRowAfterSelected = () => {
@@ -694,6 +1107,15 @@ const CompleteAgenda = () => {
   if (loading) {
     return (
       <div className="container mt-4 text-center">
+        <div className="d-flex justify-content-end mb-3">
+          <button 
+            className="btn btn-outline-primary"
+            disabled
+            title="Please wait while the agenda loads..."
+          >
+            <i className="bi bi-file-earmark-pdf me-2"></i>Download PDF
+          </button>
+        </div>
         <div className="loading-container">
           <div className="spinner-border text-primary" role="status">
             <span className="visually-hidden">Loading...</span>
@@ -704,8 +1126,30 @@ const CompleteAgenda = () => {
     );
   }
 
+  const renderMemberOption = (member) => {
+    const memberRoles = Array.isArray(assignedRoles[member.memberId]) 
+      ? assignedRoles[member.memberId] 
+      : [];
+    const roleNames = getRoleNames(memberRoles);
+    const roleText = roleNames.join(', ');
+    const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+    
+    return (
+      <option 
+        key={member.memberId} 
+        value={member.memberId}
+        title={roleText ? `Assigned roles: ${roleText}` : 'No roles assigned'}
+        className={isAvailable ? '' : 'unavailable-option'}
+      >
+        {member.memberName}
+        {!isAvailable && ' (Not available)'}
+        {roleText && ` (${roleText})`}
+      </option>
+    );
+  };
+
   return (
-    <div className="container-fluid mt-4 agenda-container">
+    <div className="container-fluid mt-4 agenda-container" ref={agendaRef}>
       {/* Top Actions */}
       <div className="agenda-header d-flex justify-content-between align-items-center mb-4">
         <div className="header-title">
@@ -715,31 +1159,41 @@ const CompleteAgenda = () => {
           </h2>
           <p className="text-muted mb-0">Manage all aspects of your meeting agenda</p>
         </div>
-        <div className="btn-group shadow-sm">
+        <div className="btn-group shadow-sm me-2">
+        <button
+          className="btn btn-outline-secondary"
+          onClick={() => navigate("/agenda-list")}
+        >
+          <i className="fas fa-arrow-left me-2"></i>Back
+        </button>
+      </div>
+      <div className="btn-group shadow-sm">
+        <button
+          className="btn btn-outline-primary"
+          onClick={handleDownloadPDF}
+          disabled={!meetingData}
+          title="Download PDF"
+        >
+          <i className="bi bi-file-earmark-pdf me-2"></i>Download PDF
+        </button>
+        {user?.role === "vp education" && (
           <button
-            className="btn btn-outline-secondary"
-            onClick={() => navigate("/agenda-list")}
+            className="btn btn-primary"
+            onClick={handleSaveAgenda}
+            disabled={saving}
           >
-            <i className="fas fa-arrow-left me-2"></i>Back
+            {saving ? (
+              <>
+                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
+                Saving...
+              </>
+            ) : (
+              <>
+                <i className="fas fa-save me-2"></i>Save All
+              </>
+            )}
           </button>
-          {user?.role === "vp education" && (
-            <button
-              className="btn btn-primary"
-              onClick={handleSaveAgenda}
-              disabled={saving}
-            >
-              {saving ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <i className="fas fa-save me-2"></i>Save All
-                </>
-              )}
-            </button>
-          )}
+        )}
         </div>
       </div>
 
@@ -1145,7 +1599,11 @@ const CompleteAgenda = () => {
                           key={`sec-${idx}`}
                           className={`table-secondary ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
                           onClick={()=> setSelectedRowRef({ zone, index: idx })}
-                          style={{ cursor: 'pointer' }}
+                          draggable={editSection === 'agenda'}
+                          onDragStart={() => handleAgendaDragStart(idx)}
+                          onDragOver={handleAgendaDragOver}
+                          onDrop={() => handleAgendaDrop(idx)}
+                          style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
                         >
                           <td className="text-center" colSpan={editSection === 'agenda' ? 7 : 6}>
                             {editSection === 'agenda' ? (
@@ -1194,7 +1652,11 @@ const CompleteAgenda = () => {
                         key={`ag-${isSpeech ? 'sp' : 'ag'}-${idx}`}
                         className={`fade-in ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
                         onClick={()=> setSelectedRowRef({ zone: isSpeech ? 'speech' : zone, index: isSpeech ? null : idx })}
-                        style={{ cursor: 'pointer' }}
+                        draggable={editSection === 'agenda'}
+                        onDragStart={() => (isSpeech ? handleSpeechDragStart(idx) : handleAgendaDragStart(idx))}
+                        onDragOver={(e) => (isSpeech ? handleSpeechDragOver(e) : handleAgendaDragOver(e))}
+                        onDrop={() => (isSpeech ? handleSpeechDrop(idx) : handleAgendaDrop(idx))}
+                        style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
                       >
                         <td>{timeStr}</td>
                         {editSection === 'agenda' && !isSpeech ? (
@@ -1266,12 +1728,12 @@ const CompleteAgenda = () => {
                             <strong>{activityText}</strong>
                           )}
                         </td>
-                        <td>
-                          {editSection === 'agenda' && !isSpeech && a.rowType !== 'break' ? (
+                        <td className="presenter-cell">
+                          {editSection === 'agenda' && !isSpeech && a.rowType !== 'break' && a.rowType !== 'section' ? (
                             <select
-                              className="form-select"
+                              className="form-select presenter-select"
                               value={a.member?.memberId || ''}
-                              onChange={(e)=>{
+                              onChange={(e) => {
                                 const updated = [...agendaJoinData.agenda];
                                 const val = e.target.value;
                                 updated[idx].member = val ? { memberId: Number(val) } : null;
@@ -1279,12 +1741,145 @@ const CompleteAgenda = () => {
                               }}
                             >
                               <option value="">Select presenter</option>
-                              {members.map(m => (
-                                <option key={m.memberId} value={m.memberId}>{m.memberName}</option>
-                              ))}
+                              
+                              {/* Available members with assigned roles */}
+                              {members.filter(member => {
+                                const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+                                const hasRoles = assignedRoles[member.memberId]?.length > 0;
+                                return isAvailable && hasRoles;
+                              }).length > 0 && (
+                                <optgroup label="Available with Assigned Roles">
+                                  {members
+                                    .filter(member => {
+                                      const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+                                      const hasRoles = assignedRoles[member.memberId]?.length > 0;
+                                      return isAvailable && hasRoles;
+                                    })
+                                    .map(member => {
+                                      const memberRoles = assignedRoles[member.memberId] || [];
+                                      const roleNames = getRoleNames(memberRoles);
+                                      const roleText = roleNames.join(', ');
+                                      
+                                      return (
+                                        <option 
+                                          key={`avail-with-roles-${member.memberId}`}
+                                          value={member.memberId}
+                                          title={`Assigned roles: ${roleText}`}
+                                        >
+                                          {member.memberName} ({roleText})
+                                        </option>
+                                      );
+                                    })}
+                                </optgroup>
+                              )}
+
+                              {/* Available members with no role assignments (marked available but no roles) */}
+                              {members.filter(member => {
+                                const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+                                const hasNoRoles = !assignedRoles[member.memberId]?.length;
+                                const hasMarkedAvailability = availableMembers.some(am => 
+                                  am.memberId === member.memberId && 
+                                  am.roles && 
+                                  am.roles.length > 0
+                                );
+                                return isAvailable && hasNoRoles && !hasMarkedAvailability;
+                              }).length > 0 && (
+                                <optgroup label="Available (No Role Assignments)">
+                                  {members
+                                    .filter(member => {
+                                      const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+                                      const hasNoRoles = !assignedRoles[member.memberId]?.length;
+                                      const hasMarkedAvailability = availableMembers.some(am => 
+                                        am.memberId === member.memberId && 
+                                        am.roles && 
+                                        am.roles.length > 0
+                                      );
+                                      return isAvailable && hasNoRoles && !hasMarkedAvailability;
+                                    })
+                                    .map(member => (
+                                      <option 
+                                        key={`avail-no-assignments-${member.memberId}`}
+                                        value={member.memberId}
+                                        title="Available but not assigned any roles"
+                                      >
+                                        {member.memberName}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                              )}
+
+                              {/* Available members with preferred roles but no assignments */}
+                              {members.filter(member => {
+                                const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+                                const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
+                                const hasMarkedAvailability = availableMembers.some(am => 
+                                  am.memberId === member.memberId && 
+                                  am.roles && 
+                                  am.roles.length > 0
+                                );
+                                return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
+                              }).length > 0 && (
+                                <optgroup label="Available with Preferred Roles">
+                                  {members
+                                    .filter(member => {
+                                      const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+                                      const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
+                                      const hasMarkedAvailability = availableMembers.some(am => 
+                                        am.memberId === member.memberId && 
+                                        am.roles && 
+                                        am.roles.length > 0
+                                      );
+                                      return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
+                                    })
+                                    .map(member => {
+                                      const memberAvailability = availableMembers.find(am => am.memberId === member.memberId);
+                                      const preferredRoles = memberAvailability?.roles || [];
+                                      const roleText = preferredRoles.join(', ');
+                                      
+                                      return (
+                                        <option 
+                                          key={`avail-preferred-${member.memberId}`}
+                                          value={member.memberId}
+                                          title={roleText ? `Preferred roles: ${roleText}` : 'No preferred roles'}
+                                        >
+                                          {member.memberName} ({roleText || 'No preferred roles'})
+                                        </option>
+                                      );
+                                    })}
+                                </optgroup>
+                              )}
+
+                              {/* Unavailable members */}
+                              {members.filter(member => {
+                                const isUnavailable = !availableMembers.some(am => am.memberId === member.memberId);
+                                return isUnavailable;
+                              }).length > 0 && (
+                                <optgroup label="Unavailable Members">
+                                  {members
+                                    .filter(member => !availableMembers.some(am => am.memberId === member.memberId))
+                                    .map(member => {
+                                      const memberRoles = assignedRoles[member.memberId] || [];
+                                      const roleNames = getRoleNames(memberRoles);
+                                      const roleText = roleNames.join(', ');
+                                      
+                                      return (
+                                        <option 
+                                          key={`unavailable-${member.memberId}`}
+                                          value={member.memberId}
+                                          title={roleText ? `Assigned roles: ${roleText}` : 'No roles assigned'}
+                                          className="unavailable-option"
+                                        >
+                                          {member.memberName} (Not available){roleText && ` - ${roleText}`}
+                                        </option>
+                                      );
+                                    })}
+                                </optgroup>
+                              )}
                             </select>
                           ) : (
-                            presenterName || 'TBD'
+                            <div className="presenter-name">
+                              {presenterName || (a.rowType !== 'break' ? 'TBD' : '')}
+                            </div>
                           )}
                         </td>
                         {editSection === "agenda" && (
@@ -1334,8 +1929,23 @@ const CompleteAgenda = () => {
               </tbody>
             </table>
           </div>
+
+          {user?.role === "vp education" && editSection === "agenda" && (
+            <div className="d-flex justify-content-end mt-3">
+              <button
+                className="btn btn-primary"
+                onClick={handleSaveAgenda}
+                disabled={saving}
+                title="Save changes to Meeting Agenda"
+              >
+                <i className="fas fa-save me-2"></i>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
+      
       
 
       {/* === Grammarian === */}
