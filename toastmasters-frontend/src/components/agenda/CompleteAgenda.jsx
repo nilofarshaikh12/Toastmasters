@@ -237,198 +237,177 @@ const CompleteAgenda = () => {
     }
   }, [meetingId]);
 
-  // Fetch available members for the meeting using robust method
-  const fetchAvailableMembers = async () => {
-    try {
-      console.log('Fetching available members for meeting:', meetingId);
-      const response = await availableMemberService.getAvailableMembersByMeetingRobust(meetingId).catch(() => null);
-      
-      if (!response) {
-        console.log('Available members endpoint not available');
-        return;
-      }
-      
-      console.log('Available members response:', response);
-      
-      // Handle both array and object responses
-      let members = [];
-      if (Array.isArray(response)) {
-        members = response;
-      } else if (Array.isArray(response?.data)) {
-        members = response.data;
-      }
-      
-      console.log('Parsed available members:', members);
-      
-      // Create a map of memberId to their preferred roles
-      const rolesByMember = {};
-      members.forEach(member => {
-        if (member.memberId) {
-          if (!rolesByMember[member.memberId]) {
-            rolesByMember[member.memberId] = [];
-          }
-          // Add roleName if available
-          if (member.roleName) {
-            rolesByMember[member.memberId].push(member.roleName);
-          }
-          // Add preferredRoles if available
-          if (Array.isArray(member.preferredRoles)) {
-            member.preferredRoles.forEach(role => {
-              if (!rolesByMember[member.memberId].includes(role)) {
-                rolesByMember[member.memberId].push(role);
-              }
-            });
-          }
-        }
-      });
-      
-      // Update assigned roles with any new information
-      if (Object.keys(rolesByMember).length > 0) {
-        console.log('Updating assigned roles from available members:', rolesByMember);
-        setAssignedRoles(prevRoles => ({
-          ...prevRoles,
-          ...rolesByMember
-        }));
-      }
-      
-      // Transform the response to match the expected format
-      const formattedMembers = members.map(member => ({
-        memberId: member.memberId,
-        memberName: member.memberName || `Member ${member.memberId}`,
-        availabilityStatus: member.availabilityStatus || 'UNKNOWN',
-        preferredRoles: member.preferredRoles || []
-      }));
-      
-      console.log('Setting available members:', formattedMembers);
-      setAvailableMembers(formattedMembers);
-      
-    } catch (error) {
-      console.error('Error in fetchAvailableMembers:', error);
-      // Don't reset available members or assigned roles as they might be set by other sources
-    }
-  };
+  // Fetch available members for the meeting (robust method)
+const fetchAvailableMembers = async () => {
+  try {
+    console.log('Fetching available members for meeting:', meetingId);
+    const response = await availableMemberService
+      .getAvailableMembersByMeetingRobust(meetingId)
+      .catch(() => null);
 
-  // Helper function to get role names from role objects or strings
-  const getRoleNames = (roles) => {
-    if (!roles) return [];
-    if (Array.isArray(roles)) {
-      return roles.map(role => {
+    if (!response) {
+      console.log('Available members endpoint not available');
+      return;
+    }
+
+    console.log('Available members response:', response);
+
+    // Handle both array and object responses
+    let members = [];
+    if (Array.isArray(response)) {
+      members = response;
+    } else if (Array.isArray(response?.data)) {
+      members = response.data;
+    }
+
+    console.log('Parsed available members:', members);
+
+    // Transform the response to match the expected format
+    const formattedMembers = members.map((member) => ({
+      memberId: member.memberId,
+      memberName: member.memberName || `Member ${member.memberId}`,
+      availabilityStatus: member.availabilityStatus || 'UNKNOWN',
+      preferredRoles: Array.isArray(member.preferredRoles)
+        ? member.preferredRoles
+        : [],
+    }));
+
+    console.log('Setting available members:', formattedMembers);
+    setAvailableMembers(formattedMembers);
+  } catch (error) {
+    console.error('Error in fetchAvailableMembers:', error);
+  }
+};
+
+// Helper function to get role names from role objects or strings
+const getRoleNames = (roles) => {
+  if (!roles) return [];
+  if (Array.isArray(roles)) {
+    return roles
+      .map((role) => {
         if (typeof role === 'string') return role;
         if (role.roleName) return role.roleName;
         if (role.name) return role.name;
         return '';
-      }).filter(Boolean);
-    }
-    // Handle case where roles is an object with role names as values
-    if (typeof roles === 'object') {
-      return Object.values(roles).flat().filter(Boolean);
-    }
-    return [];
-  };
+      })
+      .filter(Boolean);
+  }
+  // Handle case where roles is an object with role names as values
+  if (typeof roles === 'object') {
+    return Object.values(roles).flat().filter(Boolean);
+  }
+  return [];
+};
 
-  // Fetch assigned roles for the meeting
-  const fetchAssignedRoles = async () => {
-    try {
-      console.log('Fetching assigned roles for meeting:', meetingId);
-      const response = await assignedRoleService.getAssignedRolesByMeeting(meetingId).catch(() => null);
-      
-      // If the endpoint is not available, we'll use the preferred roles from available members
-      if (!response) {
-        console.log('Assigned roles endpoint not available, using preferred roles instead');
-        return;
-      }
-      
-      console.log('Assigned roles response:', response);
-      
-      // The response is an object with a data property containing the array
-      const roles = Array.isArray(response.data) ? response.data : [];
-      console.log('Parsed assigned roles:', roles);
-      
-      const rolesByMember = {};
-      roles.forEach(role => {
-        if (role.memberId) {
-          if (!rolesByMember[role.memberId]) {
-            rolesByMember[role.memberId] = [];
-          }
-          // Handle both object and string role formats
-          if (role.roleName) {
-            rolesByMember[role.memberId].push(role.roleName);
-          } else if (role.role) {
-            rolesByMember[role.memberId].push(role.role);
-          } else if (role.name) {
-            rolesByMember[role.memberId].push(role.name);
-          } else if (typeof role === 'string') {
-            rolesByMember[role.memberId].push(role);
-          }
+// Fetch assigned roles for the meeting
+const fetchAssignedRoles = async () => {
+  try {
+    console.log('Fetching assigned roles for meeting:', meetingId);
+    const response = await assignedRoleService
+      .getAssignedRolesByMeeting(meetingId)
+      .catch(() => null);
+
+    if (!response) {
+      console.log(
+        'Assigned roles endpoint not available, falling back to preferred roles'
+      );
+      return;
+    }
+
+    console.log('Assigned roles response:', response);
+
+    // The response is an object with a data property containing the array
+    const roles = Array.isArray(response.data) ? response.data : [];
+    console.log('Parsed assigned roles:', roles);
+
+    const rolesByMember = {};
+    roles.forEach((role) => {
+      if (role.memberId) {
+        if (!rolesByMember[role.memberId]) {
+          rolesByMember[role.memberId] = [];
         }
-      });
-      
-      // Only update if we found roles
-      if (Object.keys(rolesByMember).length > 0) {
-        console.log('Setting assigned roles:', rolesByMember);
-        setAssignedRoles(prevRoles => ({
-          ...prevRoles,
-          ...rolesByMember
-        }));
-      } else {
-        console.log('No roles found in the response');
+        // Handle both object and string role formats
+        if (role.roleName) {
+          rolesByMember[role.memberId].push(role.roleName);
+        } else if (role.role) {
+          rolesByMember[role.memberId].push(role.role);
+        } else if (role.name) {
+          rolesByMember[role.memberId].push(role.name);
+        } else if (typeof role === 'string') {
+          rolesByMember[role.memberId].push(role);
+        }
       }
-    } catch (error) {
-      console.error('Error fetching assigned roles:', error);
-      // Don't reset assigned roles here as they might have been set by fetchAvailableMembers
+    });
+
+    // Only update if we found roles
+    if (Object.keys(rolesByMember).length > 0) {
+      console.log('Setting assigned roles:', rolesByMember);
+      setAssignedRoles((prevRoles) => ({
+        ...prevRoles,
+        ...rolesByMember,
+      }));
+    } else {
+      console.log('No roles found in the response');
+    }
+  } catch (error) {
+    console.error('Error fetching assigned roles:', error);
+  }
+};
+
+// Format member name with their roles (🚀 shows only assigned roles)
+const getMemberWithRoles = (memberId) => {
+  const member = members.find((m) => m.memberId === memberId);
+  if (!member) return 'Unknown Member';
+
+  const roles = assignedRoles[memberId];
+  return roles && roles.length > 0
+    ? `${member.memberName} (${getRoleNames(roles).join(', ')})`
+    : member.memberName;
+};
+
+// Load roster for member selectors
+useEffect(() => {
+  const loadMembers = async () => {
+    try {
+      const res = await apiService.getMembers();
+      const data = Array.isArray(res?.data?.data)
+        ? res.data.data
+        : Array.isArray(res?.data)
+        ? res.data
+        : [];
+      // Normalize minimal structure
+      const roster = (data || []).map((m) => ({
+        memberId: Number(m.memberId || m.id),
+        memberName: m.memberName || m.name || '',
+      }));
+      setMembers(roster);
+    } catch (e) {
+      console.error('Failed to load members', e);
     }
   };
 
-  // Format member name with their roles
-  const getMemberWithRoles = (memberId) => {
-    const member = members.find(m => m.memberId === memberId);
-    if (!member) return 'Unknown Member';
-    
-    const roles = assignedRoles[memberId];
-    return roles && roles.length > 0 
-      ? `${member.memberName} (${getRoleNames(roles).join(', ')})`
-      : member.memberName;
-  };
+  loadMembers();
+}, []);
 
-  // Load roster for member selectors
-  useEffect(() => {
-    const loadMembers = async () => {
-      try {
-        const res = await apiService.getMembers();
-        const data = Array.isArray(res?.data?.data) ? res.data.data : (Array.isArray(res?.data) ? res.data : []);
-        // Normalize minimal structure
-        const roster = (data || []).map(m => ({
-          memberId: Number(m.memberId || m.id),
-          memberName: m.memberName || m.name || "",
-        }));
-        setMembers(roster);
-      } catch (e) {
-        console.error("Failed to load members", e);
-      }
+// Convenience: add at top (row 0)
+const addAgendaAtTop = () => {
+  setAgendaJoinData((prev) => {
+    const list = [...(prev.agenda || [])];
+    const row = {
+      agendaId: null,
+      clientKey: Date.now(),
+      minTime: '',
+      avgTime: '',
+      maxTime: '',
+      activity: '',
+      member: { memberId: null, memberName: '' },
     };
+    list.splice(0, 0, row);
+    setSpeechesInsertIndex((speechesInsertIndex ?? 0) + 1);
+    return { ...prev, agenda: list };
+  });
+};
 
-    loadMembers();
-  }, []);
-
-  // Convenience: add at top (row 0)
-  const addAgendaAtTop = () => {
-    setAgendaJoinData((prev) => {
-      const list = [...(prev.agenda || [])];
-      const row = {
-        agendaId: null,
-        clientKey: Date.now(),
-        minTime: "",
-        avgTime: "",
-        maxTime: "",
-        activity: "",
-        member: { memberId: null, memberName: "" },
-      };
-      list.splice(0, 0, row);
-      // if speeches start after 0 or at 0, shift index forward
-      setSpeechesInsertIndex(((speechesInsertIndex ?? 0) + 1));
-      return { ...prev, agenda: list };
-    });
-  };
 
   const addSectionAtTop = () => {
     setAgendaJoinData((prev) => {
@@ -682,36 +661,46 @@ const CompleteAgenda = () => {
     if (transformedData.agenda) {
       // Remove UI-only rows that backend doesn't support (no member allowed): section headers and breaks
       const agendaFiltered = transformedData.agenda.filter(item => item.rowType !== 'section' && item.rowType !== 'break');
-      transformedData.agenda = agendaFiltered.map((item) => {
+    
+      transformedData.agenda = agendaFiltered.map((item, idx) => {
         const copy = { ...item };
         delete copy.clientKey;
         delete copy.rowType; // client-only
+    
         if (copy.agendaId == null || copy.agendaId === 0) {
           copy.agendaId = null;
         } else {
           copy.agendaId = Number(copy.agendaId);
           if (copy.version != null) copy.version = Number(copy.version);
         }
+    
         copy.member = (item.member && item.member.memberId)
           ? { memberId: Number(item.member.memberId) }
           : null;
+    
         const hasMin = !!(copy.minTime ?? '').toString().trim();
         const hasAvg = !!(copy.avgTime ?? '').toString().trim();
         const hasMax = !!(copy.maxTime ?? '').toString().trim();
         const count = (hasMin ? 1 : 0) + (hasAvg ? 1 : 0) + (hasMax ? 1 : 0);
+    
         if (count === 1) {
           const val = (copy.avgTime || copy.minTime || copy.maxTime) || '';
           copy.minTime = null;
           copy.maxTime = null;
           copy.avgTime = val;
         }
+    
         // Normalize to numeric minutes for backend
         copy.minTime = hasMin ? toBackendMinutes(copy.minTime) : null;
         copy.avgTime = hasAvg || count === 1 ? toBackendMinutes(copy.avgTime) : null;
         copy.maxTime = hasMax ? toBackendMinutes(copy.maxTime) : null;
+    
+        // <-- Add orderIndex for drag-and-drop persistence
+        copy.orderIndex = idx;
+    
         return copy;
       });
-    }
+    }    
 
     // Transform speaker speeches - squash single time
     if (transformedData.speakerSpeech) {
@@ -1520,434 +1509,432 @@ const CompleteAgenda = () => {
 
 
       {/* === Meeting Agenda === */}
-      <div className="card mb-4 agenda-card slide-up">
-        <div className="card-header agenda-card-header d-flex justify-content-between align-items-center">
-          <h5 className="mb-0">
-            <i className="fas fa-list-ol me-2 text-info"></i>Meeting Agenda
-          </h5>
-          {user?.role === "vp education" && (
-            <div>
-              <button
-                className={`btn btn-sm ${editSection === "agenda" ? "btn-outline-danger" : "btn-outline-primary"} me-2`}
-                onClick={() =>
-                  setEditSection(editSection === "agenda" ? null : "agenda")
-                }
-              >
-                <i className={`fas ${editSection === "agenda" ? "fa-times" : "fa-edit"} me-1`}></i>
-                {editSection === "agenda" ? "Cancel" : "Edit"}
-              </button>
-              {editSection === "agenda" && (
-                <button
-                  className="btn btn-sm btn-success"
-                  onClick={addAgendaItem}
-                >
-                  <i className="fas fa-plus me-1"></i>Add New
-                </button>
-              )}
-              {editSection === "agenda" && (
-                <span className="ms-3">
-                  <label className="me-2 text-muted small">Speeches after row:</label>
-                  <select
-                    className="form-select d-inline-block w-auto"
-                    value={speechesInsertIndex ?? 0}
-                    onChange={(e)=> setSpeechesInsertIndex(Number(e.target.value))}
-                  >
-                    {Array.from({length: (agendaJoinData.agenda?.length ?? 0) + 1}).map((_,i)=> (
-                      <option key={`idx-${i}`} value={i}>{i}</option>
-                    ))}
-                  </select>
-                </span>
-              )}
-              {editSection === "agenda" && (
-                <>
-                  <button className="btn btn-sm btn-outline-primary ms-2" onClick={addRowAfterSelected}>
-                    <i className="fas fa-plus me-1"></i>Add Row
-                  </button>
-                  <button className="btn btn-sm btn-outline-secondary ms-2" onClick={addSectionAfterSelected}>
-                    <i className="fas fa-heading me-1"></i>Add Section
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="card-body">
-          <div className="table-responsive">
-            <table className="table table-bordered agenda-grid">
-              <thead>
-                <tr>
-                  <th width="120">TIME</th>
-                  <th width="80" className="text-center">MIN</th>
-                  <th width="80" className="text-center">AVG</th>
-                  <th width="80" className="text-center">MAX</th>
-                  <th>ACTIVITY</th>
-                  <th width="220">PRESENTER</th>
-                  {editSection === "agenda" && <th width="60">Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const start = parseHMToDate(meetingData?.startTime);
-                  let cursor = start ? new Date(start) : null;
-                  const rows = [];
-
-                  const pushRow = (a, idx, isSpeech = false, zone = 'before') => {
-                    // Section header: full-width row, no time advance
-                    if (a.rowType === 'section') {
-                      rows.push(
-                        <tr
-                          key={`sec-${idx}`}
-                          className={`table-secondary ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
-                          onClick={()=> setSelectedRowRef({ zone, index: idx })}
-                          draggable={editSection === 'agenda'}
-                          onDragStart={() => handleAgendaDragStart(idx)}
-                          onDragOver={handleAgendaDragOver}
-                          onDrop={() => handleAgendaDrop(idx)}
-                          style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
-                        >
-                          <td className="text-center" colSpan={editSection === 'agenda' ? 7 : 6}>
-                            {editSection === 'agenda' ? (
-                              <input
-                                className="form-control text-center fw-bold"
-                                value={a.activity || ''}
-                                placeholder="SECTION TITLE"
-                                onChange={(e)=>{
-                                  const updated = [...agendaJoinData.agenda];
-                                  updated[idx].activity = e.target.value;
-                                  setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                                }}
-                              />
-                            ) : (
-                              <strong>{(a.activity || '').toUpperCase()}</strong>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                      return;
-                    }
-                    const min = isSpeech ? (a.minSpeechTime || "") : (a.minTime || "");
-                    const avg = isSpeech ? (a.avgSpeechTime || "") : (a.avgTime || "");
-                    const max = isSpeech ? (a.maxSpeechTime || "") : (a.maxTime || "");
-                    // Use max if available, otherwise avg, otherwise min (in seconds)
-                    const useDurSec = parseDurationToSeconds(max || avg || min || 0) || 0;
-                    const timeStr = cursor ? fmtClock(cursor) : "";
-                    if (cursor) cursor = addSecondsDate(cursor, useDurSec);
-
-                    // display helpers
-                    const hasOnlyOne = (!!min + !!avg + !!max) === 1;
-                    const presenterName = a.rowType === 'break' ? '' : (isSpeech
-                      ? getMemberNameById(a.member?.memberId)
-                      : getMemberNameById(a.member?.memberId));
-                    const activityText = isSpeech
-                      ? (() => {
-                          const L = a.level ? `L${a.level}` : "";
-                          const P = a.projectNo ? `P${a.projectNo}` : "";
-                          const bits = [L, P, a.speechTitle].filter(Boolean);
-                          return bits.join("  ");
-                        })()
-                      : a.activity;
-
-                    rows.push(
-                      <tr
-                        key={`ag-${isSpeech ? 'sp' : 'ag'}-${idx}`}
-                        className={`fade-in ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
-                        onClick={()=> setSelectedRowRef({ zone: isSpeech ? 'speech' : zone, index: isSpeech ? null : idx })}
-                        draggable={editSection === 'agenda'}
-                        onDragStart={() => (isSpeech ? handleSpeechDragStart(idx) : handleAgendaDragStart(idx))}
-                        onDragOver={(e) => (isSpeech ? handleSpeechDragOver(e) : handleAgendaDragOver(e))}
-                        onDrop={() => (isSpeech ? handleSpeechDrop(idx) : handleAgendaDrop(idx))}
-                        style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
-                      >
-                        <td>{timeStr}</td>
-                        {editSection === 'agenda' && !isSpeech ? (
-                          <>
-                            <td>
-                              <input
-                                type="text"
-                                className="form-control form-control-sm text-center"
-                                placeholder="mm or mm:ss"
-                                value={min || ''}
-                                onChange={(e)=>{
-                                  const updated = [...agendaJoinData.agenda];
-                                  updated[idx].minTime = e.target.value;
-                                  setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="text"
-                                className="form-control form-control-sm text-center"
-                                placeholder="mm or mm:ss"
-                                value={avg || ''}
-                                onChange={(e)=>{
-                                  const updated = [...agendaJoinData.agenda];
-                                  updated[idx].avgTime = e.target.value;
-                                  setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="text"
-                                className="form-control form-control-sm text-center"
-                                placeholder="mm or mm:ss"
-                                value={max || ''}
-                                onChange={(e)=>{
-                                  const updated = [...agendaJoinData.agenda];
-                                  updated[idx].maxTime = e.target.value;
-                                  setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                                }}
-                              />
-                            </td>
-                          </>
-                        ) : (
-                          hasOnlyOne ? (
-                            <td colSpan={3} className="text-center fw-bold">{formatDurationMMSS(avg || min || max)}</td>
-                          ) : (
-                            <>
-                              <td className="text-center">{formatDurationMMSS(min)}</td>
-                              <td className="text-center">{formatDurationMMSS(avg)}</td>
-                              <td className="text-center">{formatDurationMMSS(max)}</td>
-                            </>
-                          )
-                        )}
-                        <td>
-                          {editSection === 'agenda' && !isSpeech && a.rowType !== 'section' ? (
-                            <input
-                              className="form-control"
-                              value={a.activity || ''}
-                              placeholder="Activity"
-                              onChange={(e)=>{
-                                const updated = [...agendaJoinData.agenda];
-                                updated[idx].activity = e.target.value;
-                                setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                              }}
-                            />
-                          ) : (
-                            <strong>{activityText}</strong>
-                          )}
-                        </td>
-                        <td className="presenter-cell">
-                          {editSection === 'agenda' && !isSpeech && a.rowType !== 'break' && a.rowType !== 'section' ? (
-                            <select
-                              className="form-select presenter-select"
-                              value={a.member?.memberId || ''}
-                              onChange={(e) => {
-                                const updated = [...agendaJoinData.agenda];
-                                const val = e.target.value;
-                                updated[idx].member = val ? { memberId: Number(val) } : null;
-                                setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                              }}
-                            >
-                              <option value="">Select presenter</option>
-                              
-                              {/* Available members with assigned roles */}
-                              {members.filter(member => {
-                                const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-                                const hasRoles = assignedRoles[member.memberId]?.length > 0;
-                                return isAvailable && hasRoles;
-                              }).length > 0 && (
-                                <optgroup label="Available with Assigned Roles">
-                                  {members
-                                    .filter(member => {
-                                      const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-                                      const hasRoles = assignedRoles[member.memberId]?.length > 0;
-                                      return isAvailable && hasRoles;
-                                    })
-                                    .map(member => {
-                                      const memberRoles = assignedRoles[member.memberId] || [];
-                                      const roleNames = getRoleNames(memberRoles);
-                                      const roleText = roleNames.join(', ');
-                                      
-                                      return (
-                                        <option 
-                                          key={`avail-with-roles-${member.memberId}`}
-                                          value={member.memberId}
-                                          title={`Assigned roles: ${roleText}`}
-                                        >
-                                          {member.memberName} ({roleText})
-                                        </option>
-                                      );
-                                    })}
-                                </optgroup>
-                              )}
-
-                              {/* Available members with no role assignments (marked available but no roles) */}
-                              {members.filter(member => {
-                                const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-                                const hasNoRoles = !assignedRoles[member.memberId]?.length;
-                                const hasMarkedAvailability = availableMembers.some(am => 
-                                  am.memberId === member.memberId && 
-                                  am.roles && 
-                                  am.roles.length > 0
-                                );
-                                return isAvailable && hasNoRoles && !hasMarkedAvailability;
-                              }).length > 0 && (
-                                <optgroup label="Available (No Role Assignments)">
-                                  {members
-                                    .filter(member => {
-                                      const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-                                      const hasNoRoles = !assignedRoles[member.memberId]?.length;
-                                      const hasMarkedAvailability = availableMembers.some(am => 
-                                        am.memberId === member.memberId && 
-                                        am.roles && 
-                                        am.roles.length > 0
-                                      );
-                                      return isAvailable && hasNoRoles && !hasMarkedAvailability;
-                                    })
-                                    .map(member => (
-                                      <option 
-                                        key={`avail-no-assignments-${member.memberId}`}
-                                        value={member.memberId}
-                                        title="Available but not assigned any roles"
-                                      >
-                                        {member.memberName}
-                                      </option>
-                                    ))}
-                                </optgroup>
-                              )}
-
-                              {/* Available members with preferred roles but no assignments */}
-                              {members.filter(member => {
-                                const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-                                const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
-                                const hasMarkedAvailability = availableMembers.some(am => 
-                                  am.memberId === member.memberId && 
-                                  am.roles && 
-                                  am.roles.length > 0
-                                );
-                                return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
-                              }).length > 0 && (
-                                <optgroup label="Available with Preferred Roles">
-                                  {members
-                                    .filter(member => {
-                                      const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-                                      const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
-                                      const hasMarkedAvailability = availableMembers.some(am => 
-                                        am.memberId === member.memberId && 
-                                        am.roles && 
-                                        am.roles.length > 0
-                                      );
-                                      return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
-                                    })
-                                    .map(member => {
-                                      const memberAvailability = availableMembers.find(am => am.memberId === member.memberId);
-                                      const preferredRoles = memberAvailability?.roles || [];
-                                      const roleText = preferredRoles.join(', ');
-                                      
-                                      return (
-                                        <option 
-                                          key={`avail-preferred-${member.memberId}`}
-                                          value={member.memberId}
-                                          title={roleText ? `Preferred roles: ${roleText}` : 'No preferred roles'}
-                                        >
-                                          {member.memberName} ({roleText || 'No preferred roles'})
-                                        </option>
-                                      );
-                                    })}
-                                </optgroup>
-                              )}
-
-                              {/* Unavailable members */}
-                              {members.filter(member => {
-                                const isUnavailable = !availableMembers.some(am => am.memberId === member.memberId);
-                                return isUnavailable;
-                              }).length > 0 && (
-                                <optgroup label="Unavailable Members">
-                                  {members
-                                    .filter(member => !availableMembers.some(am => am.memberId === member.memberId))
-                                    .map(member => {
-                                      const memberRoles = assignedRoles[member.memberId] || [];
-                                      const roleNames = getRoleNames(memberRoles);
-                                      const roleText = roleNames.join(', ');
-                                      
-                                      return (
-                                        <option 
-                                          key={`unavailable-${member.memberId}`}
-                                          value={member.memberId}
-                                          title={roleText ? `Assigned roles: ${roleText}` : 'No roles assigned'}
-                                          className="unavailable-option"
-                                        >
-                                          {member.memberName} (Not available){roleText && ` - ${roleText}`}
-                                        </option>
-                                      );
-                                    })}
-                                </optgroup>
-                              )}
-                            </select>
-                          ) : (
-                            <div className="presenter-name">
-                              {presenterName || (a.rowType !== 'break' ? 'TBD' : '')}
-                            </div>
-                          )}
-                        </td>
-                        {editSection === "agenda" && (
-                          <td>
-                            {!isSpeech ? (
-                              <button
-                                className="btn btn-sm btn-outline-danger delete-btn"
-                                onClick={() => deleteAgendaItem(idx)}
-                                title="Delete agenda item"
-                              >
-                                <i className="fas fa-trash"></i>
-                              </button>
-                            ) : null}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  };
-
-                  const agendaList = agendaJoinData.agenda || [];
-                  const spList = agendaJoinData.speakerSpeech || [];
-                  const insertAt = Math.min(Math.max(0, speechesInsertIndex ?? agendaList.length), agendaList.length);
-
-                  // before speeches
-                  agendaList.slice(0, insertAt).forEach((a, idx) => pushRow(a, idx, false));
-                  // header + speeches
-                  if (spList.length > 0) {
-                    const isSelectedHeader = selectedRowRef?.zone === 'speech' && selectedRowRef?.index == null;
-                    rows.push(
-                      <tr
-                        key="ps-header"
-                        className={`table-secondary ${isSelectedHeader ? 'table-warning' : ''}`}
-                        onClick={()=> setSelectedRowRef({ zone: 'speech', index: null, header: true })}
-                        style={{ cursor: 'pointer' }}
-                        title="Click to insert after speeches"
-                      >
-                        <td className="text-center" colSpan={editSection === 'agenda' ? 7 : 6}><strong>PREPARED SPEECHES SESSION</strong></td>
-                      </tr>
-                    );
-                    spList.forEach((s, i) => pushRow(s, i, true));
-                  }
-                  // after speeches
-                  agendaList.slice(insertAt).forEach((a, idx) => pushRow(a, insertAt + idx, false));
-
-                  return rows;
-                })()}
-              </tbody>
-            </table>
-          </div>
-
-          {user?.role === "vp education" && editSection === "agenda" && (
-            <div className="d-flex justify-content-end mt-3">
-              <button
-                className="btn btn-primary"
-                onClick={handleSaveAgenda}
-                disabled={saving}
-                title="Save changes to Meeting Agenda"
-              >
-                <i className="fas fa-save me-2"></i>
-                {saving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          )}
-        </div>
+<div className="card mb-4 agenda-card slide-up">
+  <div className="card-header agenda-card-header d-flex justify-content-between align-items-center">
+    <h5 className="mb-0">
+      <i className="fas fa-list-ol me-2 text-info"></i>Meeting Agenda
+    </h5>
+    {user?.role === "vp education" && (
+      <div>
+        <button
+          className={`btn btn-sm ${editSection === "agenda" ? "btn-outline-danger" : "btn-outline-primary"} me-2`}
+          onClick={() =>
+            setEditSection(editSection === "agenda" ? null : "agenda")
+          }
+        >
+          <i className={`fas ${editSection === "agenda" ? "fa-times" : "fa-edit"} me-1`}></i>
+          {editSection === "agenda" ? "Cancel" : "Edit"}
+        </button>
+        {editSection === "agenda" && (
+          <button
+            className="btn btn-sm btn-success"
+            onClick={addAgendaItem}
+          >
+            <i className="fas fa-plus me-1"></i>Add New
+          </button>
+        )}
+        {editSection === "agenda" && (
+          <span className="ms-3">
+            <label className="me-2 text-muted small">Speeches after row:</label>
+            <select
+              className="form-select d-inline-block w-auto"
+              value={speechesInsertIndex ?? 0}
+              onChange={(e)=> setSpeechesInsertIndex(Number(e.target.value))}
+            >
+              {Array.from({length: (agendaJoinData.agenda?.length ?? 0) + 1}).map((_,i)=> (
+                <option key={`idx-${i}`} value={i}>{i}</option>
+              ))}
+            </select>
+          </span>
+        )}
+        {editSection === "agenda" && (
+          <>
+            <button className="btn btn-sm btn-outline-primary ms-2" onClick={addRowAfterSelected}>
+              <i className="fas fa-plus me-1"></i>Add Row
+            </button>
+            <button className="btn btn-sm btn-outline-secondary ms-2" onClick={addSectionAfterSelected}>
+              <i className="fas fa-heading me-1"></i>Add Section
+            </button>
+          </>
+        )}
       </div>
-      
-      
+    )}
+  </div>
+  <div className="card-body">
+    <div className="table-responsive">
+      <table className="table table-bordered agenda-grid">
+        <thead>
+          <tr>
+            <th width="120">TIME</th>
+            <th width="80" className="text-center">MIN</th>
+            <th width="80" className="text-center">AVG</th>
+            <th width="80" className="text-center">MAX</th>
+            <th>ACTIVITY</th>
+            <th width="220">PRESENTER</th>
+            {editSection === "agenda" && <th width="60">Action</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {(() => {
+            const start = parseHMToDate(meetingData?.startTime);
+            let cursor = start ? new Date(start) : null;
+            const rows = [];
 
+            const pushRow = (a, idx, isSpeech = false, zone = 'before') => {
+              if (a.rowType === 'section') {
+                rows.push(
+                  <tr
+                    key={`sec-${idx}`}
+                    className={`table-secondary ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
+                    onClick={()=> setSelectedRowRef({ zone, index: idx })}
+                    draggable={editSection === 'agenda'}
+                    onDragStart={() => handleAgendaDragStart(idx)}
+                    onDragOver={handleAgendaDragOver}
+                    onDrop={() => handleAgendaDrop(idx)}
+                    style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
+                  >
+                    <td className="text-center" colSpan={editSection === 'agenda' ? 7 : 6}>
+                      {editSection === 'agenda' ? (
+                        <input
+                          className="form-control text-center fw-bold"
+                          value={a.activity || ''}
+                          placeholder="SECTION TITLE"
+                          onChange={(e)=>{
+                            const updated = [...agendaJoinData.agenda];
+                            updated[idx].activity = e.target.value;
+                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
+                          }}
+                        />
+                      ) : (
+                        <strong>{(a.activity || '').toUpperCase()}</strong>
+                      )}
+                    </td>
+                  </tr>
+                );
+                return;
+              }
+              const min = isSpeech ? (a.minSpeechTime || "") : (a.minTime || "");
+              const avg = isSpeech ? (a.avgSpeechTime || "") : (a.avgTime || "");
+              const max = isSpeech ? (a.maxSpeechTime || "") : (a.maxTime || "");
+              const useDurSec = parseDurationToSeconds(max || avg || min || 0) || 0;
+              const timeStr = cursor ? fmtClock(cursor) : "";
+              if (cursor) cursor = addSecondsDate(cursor, useDurSec);
+
+              const hasOnlyOne = (!!min + !!avg + !!max) === 1;
+              const presenterName = a.rowType === 'break' ? '' : (isSpeech
+                ? getMemberNameById(a.member?.memberId)
+                : getMemberNameById(a.member?.memberId));
+              const activityText = isSpeech
+                ? (() => {
+                    const L = a.level ? `L${a.level}` : "";
+                    const P = a.projectNo ? `P${a.projectNo}` : "";
+                    const bits = [L, P, a.speechTitle].filter(Boolean);
+                    return bits.join("  ");
+                  })()
+                : a.activity;
+
+              rows.push(
+                <tr
+                  key={`ag-${isSpeech ? 'sp' : 'ag'}-${idx}`}
+                  className={`fade-in ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
+                  onClick={()=> setSelectedRowRef({ zone: isSpeech ? 'speech' : zone, index: isSpeech ? null : idx })}
+                  draggable={editSection === 'agenda'}
+                  onDragStart={() => (isSpeech ? handleSpeechDragStart(idx) : handleAgendaDragStart(idx))}
+                  onDragOver={(e) => (isSpeech ? handleSpeechDragOver(e) : handleAgendaDragOver(e))}
+                  onDrop={() => (isSpeech ? handleSpeechDrop(idx) : handleAgendaDrop(idx))}
+                  style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
+                >
+                  <td>{timeStr}</td>
+                  {editSection === 'agenda' && !isSpeech ? (
+                    <>
+                      <td>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm text-center"
+                          placeholder="mm or mm:ss"
+                          value={min || ''}
+                          onChange={(e)=>{
+                            const updated = [...agendaJoinData.agenda];
+                            updated[idx].minTime = e.target.value;
+                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm text-center"
+                          placeholder="mm or mm:ss"
+                          value={avg || ''}
+                          onChange={(e)=>{
+                            const updated = [...agendaJoinData.agenda];
+                            updated[idx].avgTime = e.target.value;
+                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          className="form-control form-control-sm text-center"
+                          placeholder="mm or mm:ss"
+                          value={max || ''}
+                          onChange={(e)=>{
+                            const updated = [...agendaJoinData.agenda];
+                            updated[idx].maxTime = e.target.value;
+                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
+                          }}
+                        />
+                      </td>
+                    </>
+                  ) : (
+                    hasOnlyOne ? (
+                      <td colSpan={3} className="text-center fw-bold">{formatDurationMMSS(avg || min || max)}</td>
+                    ) : (
+                      <>
+                        <td className="text-center">{formatDurationMMSS(min)}</td>
+                        <td className="text-center">{formatDurationMMSS(avg)}</td>
+                        <td className="text-center">{formatDurationMMSS(max)}</td>
+                      </>
+                    )
+                  )}
+                  <td>
+                    {editSection === 'agenda' && !isSpeech && a.rowType !== 'section' ? (
+                      <input
+                        className="form-control"
+                        value={a.activity || ''}
+                        placeholder="Activity"
+                        onChange={(e)=>{
+                          const updated = [...agendaJoinData.agenda];
+                          updated[idx].activity = e.target.value;
+                          setAgendaJoinData({ ...agendaJoinData, agenda: updated });
+                        }}
+                      />
+                    ) : (
+                      <strong>{activityText}</strong>
+                    )}
+                  </td>
+                  <td className="presenter-cell">
+                    {editSection === 'agenda' && !isSpeech && a.rowType !== 'break' && a.rowType !== 'section' ? (
+                      <select
+                      className="form-select presenter-select"
+                      value={a.member?.memberId || ''}
+                      onChange={(e) => {
+                        const updated = [...agendaJoinData.agenda];
+                        const val = e.target.value;
+                        updated[idx].member = val ? { memberId: Number(val) } : null;
+                        setAgendaJoinData({ ...agendaJoinData, agenda: updated });
+                      }}
+                    >
+                        <option value="">Select presenter</option>
+
+                       {/* ✅ Available members with assigned roles */}
+{members.filter(member => {
+  const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+  const hasRoles = assignedRoles[member.memberId]?.length > 0;
+  return isAvailable && hasRoles;
+}).length > 0 && (
+  <optgroup label="Available with Assigned Roles">
+    {members
+      .filter(member => {
+        const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+        const hasRoles = assignedRoles[member.memberId]?.length > 0;
+        return isAvailable && hasRoles;
+      })
+      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
+      .map(member => {
+        const memberRoles = assignedRoles[member.memberId] || [];
+        const roleNames = getRoleNames(memberRoles);
+        const roleText = roleNames.join(', ');
+        
+        return (
+          <option 
+            key={`avail-with-roles-${member.memberId}`}
+            value={member.memberId}
+            title={`Assigned roles: ${roleText}`}
+          >
+            {member.memberName} ({roleText})
+          </option>
+        );
+      })}
+  </optgroup>
+)}
+
+{/* ✅ Available members with no role assignments */}
+{members.filter(member => {
+  const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+  const hasNoRoles = !assignedRoles[member.memberId]?.length;
+  const hasMarkedAvailability = availableMembers.some(am => 
+    am.memberId === member.memberId && 
+    am.roles && 
+    am.roles.length > 0
+  );
+  return isAvailable && hasNoRoles && !hasMarkedAvailability;
+}).length > 0 && (
+  <optgroup label="Available (No Role Assignments)">
+    {members
+      .filter(member => {
+        const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+        const hasNoRoles = !assignedRoles[member.memberId]?.length;
+        const hasMarkedAvailability = availableMembers.some(am => 
+          am.memberId === member.memberId && 
+          am.roles && 
+          am.roles.length > 0
+        );
+        return isAvailable && hasNoRoles && !hasMarkedAvailability;
+      })
+      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
+      .map(member => (
+        <option 
+          key={`avail-no-assignments-${member.memberId}`}
+          value={member.memberId}
+          title="Available but not assigned any roles"
+        >
+          {member.memberName}
+        </option>
+      ))}
+  </optgroup>
+)}
+
+{/* ✅ Available members with preferred roles */}
+{members.filter(member => {
+  const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+  const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
+  const hasMarkedAvailability = availableMembers.some(am => 
+    am.memberId === member.memberId && 
+    am.roles && 
+    am.roles.length > 0
+  );
+  return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
+}).length > 0 && (
+  <optgroup label="Available with Preferred Roles">
+    {members
+      .filter(member => {
+        const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
+        const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
+        const hasMarkedAvailability = availableMembers.some(am => 
+          am.memberId === member.memberId && 
+          am.roles && 
+          am.roles.length > 0
+        );
+        return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
+      })
+      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
+      .map(member => {
+        const memberAvailability = availableMembers.find(am => am.memberId === member.memberId);
+        const preferredRoles = memberAvailability?.roles || [];
+        const roleText = preferredRoles.join(', ');
+        
+        return (
+          <option 
+            key={`avail-preferred-${member.memberId}`}
+            value={member.memberId}
+            title={roleText ? `Preferred roles: ${roleText}` : 'No preferred roles'}
+          >
+            {member.memberName} ({roleText || 'No preferred roles'})
+          </option>
+        );
+      })}
+  </optgroup>
+)}
+
+{/* ✅ Unavailable members */}
+{members.filter(member => {
+  const isUnavailable = !availableMembers.some(am => am.memberId === member.memberId);
+  return isUnavailable;
+}).length > 0 && (
+  <optgroup label="Unavailable Members">
+    {members
+      .filter(member => !availableMembers.some(am => am.memberId === member.memberId))
+      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
+      .map(member => {
+        const memberRoles = assignedRoles[member.memberId] || [];
+        const roleNames = getRoleNames(memberRoles);
+        const roleText = roleNames.join(', ');
+        
+        return (
+          <option 
+            key={`unavailable-${member.memberId}`}
+            value={member.memberId}
+            title={roleText ? `Assigned roles: ${roleText}` : 'No roles assigned'}
+            className="unavailable-option"
+          >
+            {member.memberName} (Not available){roleText && ` - ${roleText}`}
+          </option>
+        );
+      })}
+  </optgroup>
+)}
+</select>
+                    ) : (
+                      <div className="presenter-name">
+                        {presenterName || (a.rowType !== 'break' ? 'TBD' : '')}
+                      </div>
+                    )}
+                  </td>
+                  {editSection === "agenda" && (
+                    <td>
+                      {!isSpeech ? (
+                        <button
+                          className="btn btn-sm btn-outline-danger delete-btn"
+                          onClick={() => deleteAgendaItem(idx)}
+                          title="Delete agenda item"
+                        >
+                          <i className="fas fa-trash"></i>
+                        </button>
+                      ) : null}
+                    </td>
+                  )}
+                </tr>
+              );
+            };
+
+            const agendaList = agendaJoinData.agenda || [];
+            const spList = agendaJoinData.speakerSpeech || [];
+            const insertAt = Math.min(Math.max(0, speechesInsertIndex ?? agendaList.length), agendaList.length);
+
+            agendaList.slice(0, insertAt).forEach((a, idx) => pushRow(a, idx, false));
+            if (spList.length > 0) {
+              const isSelectedHeader = selectedRowRef?.zone === 'speech' && selectedRowRef?.index == null;
+              rows.push(
+                <tr
+                  key="ps-header"
+                  className={`table-secondary ${isSelectedHeader ? 'table-warning' : ''}`}
+                  onClick={()=> setSelectedRowRef({ zone: 'speech', index: null, header: true })}
+                  style={{ cursor: 'pointer' }}
+                  title="Click to insert after speeches"
+                >
+                  <td className="text-center" colSpan={editSection === 'agenda' ? 7 : 6}><strong>PREPARED SPEECHES SESSION</strong></td>
+                </tr>
+              );
+              spList.forEach((s, i) => pushRow(s, i, true));
+            }
+            agendaList.slice(insertAt).forEach((a, idx) => pushRow(a, insertAt + idx, false));
+
+            return rows;
+          })()}
+        </tbody>
+      </table>
+    </div>
+
+    {user?.role === "vp education" && editSection === "agenda" && (
+      <div className="d-flex justify-content-end mt-3">
+        <button
+          className="btn btn-primary"
+          onClick={handleSaveAgenda}
+          disabled={saving}
+          title="Save changes to Meeting Agenda"
+        >
+          <i className="fas fa-save me-2"></i>
+          {saving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+    )}
+  </div>
+</div>
+
+      
+    
       {/* === Grammarian === */}
       <div className="card mb-4 agenda-card slide-up">
         <div className="card-header agenda-card-header d-flex justify-content-between align-items-center">
