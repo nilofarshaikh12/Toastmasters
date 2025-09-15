@@ -38,5 +38,6 @@ public class AvailableMember {
             joinColumns = @JoinColumn(name = "available_member_id"),
             inverseJoinColumns = @JoinColumn(name = "role_id")
     )
+    @OrderColumn(name = "role_order")
     private List<Roles> preferredRoles = new ArrayList<>();
 }

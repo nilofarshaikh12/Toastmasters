@@ -1,5 +1,6 @@
 package com.example.toastMasters.services;
 
+import com.example.toastMasters.constants.MeetingConstants;
 import com.example.toastMasters.dto.AgendaRequestDTO;
 import com.example.toastMasters.dto.AgendaResponseDTO;
 import com.example.toastMasters.entity.Agenda;
@@ -11,8 +12,11 @@ import com.example.toastMasters.repositories.AgendaRepository;
 import com.example.toastMasters.repositories.MeetingRepository;
 import com.example.toastMasters.repositories.MemberRepository;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -91,7 +95,7 @@ public class AgendaServiceImpl implements AgendaService {
 
     @Override
     public List<AgendaResponseDTO> getAgendasByMeetingId(String meetingId) {
-        List<Agenda> agendas = agendaRepository.findByMeeting_MeetingId(meetingId);
+        List<Agenda> agendas = agendaRepository.findByMeeting_MeetingIdOrderByOrderIndexAsc(meetingId);
         if (agendas.isEmpty()) {
             throw new MeetingNotFoundException("No agendas found for meeting id " + meetingId);
         }
@@ -120,4 +124,47 @@ public class AgendaServiceImpl implements AgendaService {
                 })
                 .collect(Collectors.toList());
     }
+
+    @Override
+    public List<AgendaResponseDTO> copyAgendaByMeeting(String fromMeetingId, String toMeetingId) {
+        Optional<Meeting> fromMeeting = meetingRepository.findById(fromMeetingId);
+        if (fromMeeting.isEmpty())
+            throw new MeetingNotFoundException(MeetingConstants.MEETING_NOT_FOUND);
+        Meeting fromMeetingData = fromMeeting.get();
+
+        Optional<Meeting> toMeeting = meetingRepository.findById(toMeetingId);
+        if (toMeeting.isEmpty())
+            throw new MeetingNotFoundException(MeetingConstants.MEETING_NOT_FOUND);
+        Meeting toMeetingData = toMeeting.get();
+
+        agendaRepository.deleteAllByMeeting(toMeetingData);
+
+        Optional<Member> member = memberRepository.findById(8);
+        Member memberData = member.get();
+
+        List<Agenda> meetingList = agendaRepository.findAllByMeeting(fromMeetingData);
+        List<Agenda> meetingListSave = new ArrayList<>();
+        for(Agenda agenda: meetingList){
+            Agenda newAgenda = new Agenda();
+
+            newAgenda.setActivity(agenda.getActivity());
+            newAgenda.setAgendaCreatedAt(LocalDateTime.now());
+            newAgenda.setAvgTime(agenda.getAvgTime());
+            newAgenda.setMinTime(agenda.getMinTime());
+            newAgenda.setMaxTime(agenda.getMaxTime());
+          //  newAgenda.setAgendaSection(agenda.getAgendaSection());
+            newAgenda.setMeeting(toMeetingData);
+            newAgenda.setMember(memberData);
+
+            meetingListSave.add(newAgenda);
+        }
+        List<Agenda> savedAgendas = agendaRepository.saveAll(meetingListSave);
+
+        // Convert to DTOs
+        return savedAgendas.stream()
+                .map(agendaMapper::toResponseDTO)
+                .collect(Collectors.toList());
+    }
+
+
 }

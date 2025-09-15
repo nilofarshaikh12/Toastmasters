@@ -21,4 +21,5 @@ public class MeetingRequestDTO {
     private String venue;
     private String category;
     private List<MeetingRoleDTO> roles;
+    private boolean isPublish;
 }

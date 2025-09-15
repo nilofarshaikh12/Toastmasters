@@ -13,7 +13,6 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 public class Meeting {
-
     @Id
     @GeneratedValue(generator = "meeting-id-generator")
     @GenericGenerator(
@@ -22,20 +21,17 @@ public class Meeting {
     )
     @Column(length = 10)
     private String meetingId;
-
     private LocalDate date;
     private LocalTime startTime;
     private LocalTime endTime;
-
     private String theme;
     private String venue;
     private String category;
-
     @Column(nullable = false)
     private boolean deleted = false;
-
     @OneToMany(mappedBy = "meeting", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private List<MeetingRole> roles = new ArrayList<>();
+    private boolean isPublish=false;
 }

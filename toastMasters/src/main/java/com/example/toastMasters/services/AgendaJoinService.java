@@ -5,5 +5,6 @@ import com.example.toastMasters.exceptions.ResponseMessage;
 import org.springframework.http.ResponseEntity;
 
 public interface AgendaJoinService {
-    ResponseEntity<ResponseMessage<AgendaJoinDTO>> getAgenda(int speakerId,int grammarianId, String meetingId);
+    ResponseEntity<ResponseMessage<AgendaJoinDTO>> getAgenda(String meetingId);
+    ResponseEntity<ResponseMessage<AgendaJoinDTO>> updateAgenda(AgendaJoinDTO agendaJoinDTO, String meetingId);
 }

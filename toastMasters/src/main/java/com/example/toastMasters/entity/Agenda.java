@@ -14,7 +14,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @NoArgsConstructor
 public class Agenda {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int agendaId;
@@ -32,4 +31,6 @@ public class Agenda {
     private Meeting meeting;
 
     private LocalDateTime agendaCreatedAt;
+
+    private Integer orderIndex;
 }

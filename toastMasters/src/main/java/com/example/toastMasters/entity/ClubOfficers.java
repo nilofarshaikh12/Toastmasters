@@ -12,14 +12,11 @@ import lombok.Setter;
 @AllArgsConstructor
 @NoArgsConstructor
 public class ClubOfficers {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int clubOfficersId;
     private String leadershipRole;
-
     @ManyToOne
     @JoinColumn(name = "memberName",nullable = false)
     private Member member;
-
 }

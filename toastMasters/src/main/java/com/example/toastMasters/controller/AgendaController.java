@@ -41,4 +41,10 @@ public class AgendaController {
         List<AgendaResponseDTO> response = agendaService.getAgendasByMemberId(memberId);
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/copyAgenda/{fromMeetingId}/{toMeetingId}")
+    public ResponseEntity<List<AgendaResponseDTO>> copyAgenda(@PathVariable String fromMeetingId, @PathVariable String toMeetingId){
+        List<AgendaResponseDTO> response= agendaService.copyAgendaByMeeting(fromMeetingId, toMeetingId);
+        return ResponseEntity.ok(response);
+    }
 }

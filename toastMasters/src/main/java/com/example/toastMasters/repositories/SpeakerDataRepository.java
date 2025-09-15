@@ -17,4 +17,6 @@ public interface SpeakerDataRepository extends JpaRepository<SpeakerData, Intege
 
     List<SpeakerData> findByMeeting_MeetingId(String meetingId);
     List<SpeakerData> findAllByMemberAndMeeting(Member member, Meeting meeting);
+
+    List<SpeakerData> findAllByMeeting(Meeting meetingData);
 }

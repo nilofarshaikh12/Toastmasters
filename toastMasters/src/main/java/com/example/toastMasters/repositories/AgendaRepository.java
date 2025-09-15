@@ -11,7 +11,8 @@ import java.util.List;
 public interface AgendaRepository extends JpaRepository<Agenda,Integer> {
 
     void deleteAllByMeeting(Meeting meeting);
-    List<Agenda> findByMeeting_MeetingId(String meetingId);
+    List<Agenda> findByMeeting_MeetingIdOrderByOrderIndexAsc(String meetingId);
+    int countByMeeting(Meeting meeting);
     List<Agenda> findByMember_MemberId(int memberId);
 
     List<Agenda> findAllByMeeting(Meeting meetingData);

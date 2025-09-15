@@ -17,4 +17,5 @@ public class AgendaResponseDTO {
     private String meetingId;
     private LocalDateTime agendaCreatedAt;
     private String memberName;
+    private Integer orderIndex;
 }

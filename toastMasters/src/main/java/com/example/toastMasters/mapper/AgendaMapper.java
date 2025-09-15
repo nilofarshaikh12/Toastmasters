@@ -13,13 +13,16 @@ public interface AgendaMapper {
     @Mappings({
             @Mapping(target = "member", ignore = true),
             @Mapping(target = "meeting", ignore = true),
-            @Mapping(target = "agendaCreatedAt", expression = "java(java.time.LocalDateTime.now())") })
+            @Mapping(target = "agendaCreatedAt", expression = "java(java.time.LocalDateTime.now())"),
+            @Mapping(source = "orderIndex", target = "orderIndex")  //  map orderIndex
+    })
     Agenda toEntity(AgendaRequestDTO dto);
-
 
     @Mappings({
             @Mapping(source = "member.memberId", target = "memberId"),
-            @Mapping(source = "meeting.meetingId", target = "meetingId")
+            @Mapping(source = "meeting.meetingId", target = "meetingId"),
+            @Mapping(source = "orderIndex", target = "orderIndex") // map orderIndex
     })
     AgendaResponseDTO toResponseDTO(Agenda entity);
 }
+

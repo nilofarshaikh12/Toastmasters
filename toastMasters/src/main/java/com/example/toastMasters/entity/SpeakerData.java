@@ -13,11 +13,9 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @NoArgsConstructor
 public class SpeakerData {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int speakerId;
-
     private String memberName;
     private String pathwaysTrack;
     private int level;
@@ -27,14 +25,11 @@ public class SpeakerData {
     private int maxSpeechTime;
     private String speechTitle;
     private String speechObjectives;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "member_id", nullable = false)
     private Member member;
-
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "meeting_id", nullable = false)
     private Meeting meeting;
-
     private LocalDateTime speechCreatedAt;
 }

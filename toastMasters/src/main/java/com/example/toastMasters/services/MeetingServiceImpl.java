@@ -101,6 +101,8 @@ public class MeetingServiceImpl implements MeetingService{
             meeting.setCategory(meetingRequestDTO.getCategory());
         }
 
+        meeting.setPublish(meetingRequestDTO.isPublish());
+
         //  Handle roles update safely
         if (meetingRequestDTO.getRoles() != null) {
             try {

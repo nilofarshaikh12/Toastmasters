@@ -17,4 +17,6 @@ public interface GrammarianRepository extends JpaRepository<Grammarian, Integer>
    // List<Grammarian> findAllByMember_MemberIdAndMeeting_MeetingId(Member member, Meeting meeting);
 
     List<Grammarian> findAllByMemberAndMeeting(Member grammarianData, Meeting meetingData);
+
+    List<Grammarian> findAllByMeeting(Meeting meetingData);
 }

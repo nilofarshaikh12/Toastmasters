@@ -15,7 +15,6 @@ import lombok.Setter;
 @AllArgsConstructor
 @NoArgsConstructor
 public class Abbreviations {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int abbreviationId;

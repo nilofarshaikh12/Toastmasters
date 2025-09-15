@@ -12,4 +12,6 @@ public interface AgendaService {
     List<AgendaResponseDTO> getAgendasByMeetingId(String meetingId);
 
     List<AgendaResponseDTO> getAgendasByMemberId(int memberId);
+
+    List<AgendaResponseDTO> copyAgendaByMeeting(String fromMeetingId, String toMeetingId);
 }
