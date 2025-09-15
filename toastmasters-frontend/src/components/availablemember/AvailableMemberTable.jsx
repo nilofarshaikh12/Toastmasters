@@ -34,6 +34,48 @@ function AvailableMembersTable() {
   const [infoBanner, setInfoBanner] = useState('');
   const [selectedMeeting, setSelectedMeeting] = useState(null);
 
+  // Build preferred roles in the order user selected
+  const getPreferredRolesOrdered = (am) => {
+    try {
+      const ids = Array.isArray(am?.preferredRoleIds) ? am.preferredRoleIds.map((x) => String(x)) : [];
+      const idsFromCsv = !ids.length && typeof am?.preferredRoleOrder === 'string' && am.preferredRoleOrder.trim().length > 0
+        ? am.preferredRoleOrder.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+      const rolesArr = Array.isArray(am?.preferredRoles) ? am.preferredRoles : [];
+      // If both arrays exist, try to order rolesArr by ids
+      if (rolesArr.length > 0 && (ids.length > 0 || idsFromCsv.length > 0)) {
+        const toKey = (r) => String(typeof r === 'string' ? r : r?.roleId);
+        const mapById = new Map(rolesArr.map((r) => [toKey(r), r]));
+        const keyOrder = ids.length > 0 ? ids : idsFromCsv;
+        const ordered = keyOrder.map((id) => mapById.get(String(id))).filter(Boolean);
+        if (ordered.length > 0) return ordered.map((r) => (typeof r === 'string' ? { roleId: r, roleName: (allRoles.find(ar => String(ar.roleId) === String(r))?.roleName || r) } : r));
+      }
+      // If rolesArr exists but no ids, keep server order as fallback
+      if (rolesArr.length > 0) {
+        // If backend persisted preferenceRank/preferenceOrder/order/sequence, sort by that first
+        const getRank = (x) => {
+          if (!x || typeof x === 'string') return Number.MAX_SAFE_INTEGER;
+          return x.preferenceRank ?? x.preferenceOrder ?? x.order ?? x.sequence ?? Number.MAX_SAFE_INTEGER;
+        };
+        const anyRanks = rolesArr.some((r) => getRank(r) !== Number.MAX_SAFE_INTEGER);
+        const sorted = anyRanks ? rolesArr.slice().sort((a, b) => getRank(a) - getRank(b)) : rolesArr;
+        return sorted.map((r) => (typeof r === 'string' ? { roleId: r, roleName: (allRoles.find(ar => String(ar.roleId) === String(r))?.roleName || r) } : r));
+      }
+      // If only ids exist, map to role objects from allRoles
+      if (ids.length > 0 || idsFromCsv.length > 0) {
+        const norm = (v) => String(v ?? '').replace(/^R/i, '');
+        const keyOrder = ids.length > 0 ? ids : idsFromCsv;
+        return keyOrder.map((id) => {
+          const match = allRoles.find((ar) => norm(ar.roleId) === norm(id) || String(ar.roleId) === String(id));
+          return match ? { roleId: match.roleId, roleName: match.roleName } : { roleId: id, roleName: String(id) };
+        });
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  };
+
   // Resolve the logged-in user's memberId using AuthContext and roster fallback
   const getCurrentUserMemberId = () => {
     const uid = user?.memberId || user?.id || user?.userId;
@@ -1706,20 +1748,23 @@ function AvailableMembersTable() {
                           <td>{getMemberName(am.memberId)}</td>
                           <td>{am.availabilityStatus}</td>
                           <td>
-                            {am.preferredRoles && am.preferredRoles.length > 0 ? (
-                              <div>
-                                {am.preferredRoles.map((role, index) => (
-                                  <div key={role.roleId} className="mb-1">
-                                    <small className="badge bg-secondary me-2">
-                                      {index === 0 ? '1st' : index === 1 ? '2nd' : '3rd'}
-                                    </small>
-                                    <span>{role.roleName}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-muted">No preferences</span>
-                            )}
+                            {(() => {
+                              const ordered = getPreferredRolesOrdered(am);
+                              return ordered && ordered.length > 0 ? (
+                                <div>
+                                  {ordered.map((role, index) => (
+                                    <div key={`${role.roleId || index}`} className="mb-1">
+                                      <small className="badge bg-secondary me-2">
+                                        {index === 0 ? '1st' : index === 1 ? '2nd' : '3rd'}
+                                      </small>
+                                      <span>{role.roleName}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-muted">No preferences</span>
+                              );
+                            })()}
                           </td>
                           <td>
                             {assigned && assigned.length > 0 

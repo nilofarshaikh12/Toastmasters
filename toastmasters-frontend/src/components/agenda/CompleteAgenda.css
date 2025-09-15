@@ -40,7 +40,7 @@
 }
 
 .agenda-card-header {
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  background: linear-gradient(135deg, #80f7dd 0%, #acd6e0 100%); 
   border-bottom: 2px solid #e0e0e0;
   padding: 1.25rem 1.5rem;
   font-weight: 600;
@@ -136,18 +136,18 @@
 }
 
 .agenda-grid td:nth-child(2) input[type="text"] { /* Min Time input */
-  background-color: rgba(76, 175, 80, 0.1); /* Green */
-  border: 1px solid rgba(76, 175, 80, 0.3);
+  background-color: rgba(76, 175, 80, 0.25); /* Darker Green */
+  border: 1px solid rgba(76, 175, 80, 0.6);
 }
 
 .agenda-grid td:nth-child(3) input[type="text"] { /* Avg Time input */
-  background-color: rgba(255, 193, 7, 0.15); /* Yellow/Amber */
-  border: 1px solid rgba(255, 193, 7, 0.3);
+  background-color: rgba(255, 193, 7, 0.3); /* Darker Yellow/Amber */
+  border: 1px solid rgba(255, 193, 7, 0.6);
 }
 
 .agenda-grid td:nth-child(4) input[type="text"] { /* Max Time input */
-  background-color: rgba(244, 67, 54, 0.1); /* Red */
-  border: 1px solid rgba(244, 67, 54, 0.3);
+  background-color: rgba(244, 67, 54, 0.25); /* Darker Red */
+  border: 1px solid rgba(244, 67, 54, 0.6);
 }
 
 /* Keep the original style for section headers */
@@ -387,6 +387,23 @@
   box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3);
 }
 
+/* Icon-only delete (dustbin) styling */
+.delete-icon {
+  cursor: pointer;
+  font-size: 20px;
+  color: #dc3545; /* Bootstrap danger */
+  transition: color 0.2s ease, transform 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+.delete-icon:hover {
+  color: #b71c1c;
+  transform: scale(1.1);
+}
+
 .delete-btn:hover {
   transform: scale(1.05);
   background: linear-gradient(135deg, #d32f2f 0%, #c62828 100%);
@@ -404,6 +421,17 @@
   color: #2e7d32;
   display: inline-block;
   font-size: 0.9rem;
+}
+
+/* Read-only colored cells for min/avg/max durations */
+.agenda-grid td.time-min {
+  background-color: #8add8d; /* darker green */
+}
+.agenda-grid td.time-avg {
+  background-color: #f0ed39; /* darker yellow */
+}
+.agenda-grid td.time-max {
+  background-color: #ff7987; /* darker red */
 }
 
 /* Responsive Design */
@@ -538,4 +566,59 @@
   max-width: 900px;
   margin-left: auto;
   margin-right: auto;
+}
+
+/* === Full Agenda Edit Modal styles === */
+.agenda-modal-header {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 3;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.agenda-modal-toolbar {
+  position: sticky;
+  top: 56px; /* below header */
+  background: #fff;
+  z-index: 3;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.agenda-modal-body {
+  padding-bottom: 140px; /* extra space so the last row is never behind the sticky footer */
+  overscroll-behavior: contain; /* prevent scroll chaining to the page */
+}
+
+.agenda-modal-footer {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  z-index: 3;
+  box-shadow: 0 -2px 6px rgba(0,0,0,0.08);
+}
+
+.agenda-modal-footer .btn-lg {
+  padding: 0.75rem 1.25rem;
+  font-weight: 700;
+  min-width: 160px;
+}
+
+@media (max-width: 768px) {
+  .agenda-modal-toolbar {
+    top: 52px;
+  }
+  .agenda-modal-footer .btn-lg {
+    width: 100%;
+  }
+}
+
+/* Lock background scroll while modal is open */
+body.modal-open {
+  overflow: hidden;
+}
+
+/* Prevent scroll chaining on modal container */
+.agenda-modal-dialog {
+  overscroll-behavior: contain;
 }

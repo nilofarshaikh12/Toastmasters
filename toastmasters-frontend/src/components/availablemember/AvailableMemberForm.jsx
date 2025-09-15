@@ -23,7 +23,7 @@ function AvailableMemberForm() {
     meetingId: preselectedMeetingId || "",
     memberId: "",
     availabilityStatus: "AVAILABLE",
-    preferredRoleIds: new Set(),
+    preferredRoleIds: [],
   });
 
   const [meetings, setMeetings] = useState([]);
@@ -132,7 +132,16 @@ function AvailableMemberForm() {
           let prefIds = [];
           if (Array.isArray(rolesField) && rolesField.length > 0) {
             // Could be array of objects or strings
-            prefIds = rolesField.map((r) => (typeof r === 'string' ? r : r?.roleId)).filter(Boolean);
+            const orderedRoles = rolesField
+              .slice()
+              .sort((a, b) => {
+                const getRank = (x) => {
+                  if (!x || typeof x === 'string') return Number.MAX_SAFE_INTEGER;
+                  return x.preferenceRank ?? x.preferenceOrder ?? x.order ?? x.sequence ?? Number.MAX_SAFE_INTEGER;
+                };
+                return getRank(a) - getRank(b);
+              });
+            prefIds = orderedRoles.map((r) => (typeof r === 'string' ? r : r?.roleId)).filter(Boolean);
           } else if (Array.isArray(amData?.preferredRoleIds)) {
             prefIds = amData.preferredRoleIds.filter(Boolean);
           }
@@ -140,7 +149,7 @@ function AvailableMemberForm() {
             meetingId: amData?.meetingId ?? preselectedMeetingId ?? "",
             memberId: amData?.memberId ?? "",
             availabilityStatus: amData?.availabilityStatus ?? "AVAILABLE",
-            preferredRoleIds: new Set(prefIds),
+            preferredRoleIds: prefIds,
           });
         }
       } catch (error) {
@@ -305,7 +314,7 @@ function AvailableMemberForm() {
     const { name, value } = e.target;
     setAvailableMember((prev) => {
       const updated = { ...prev, [name]: value };
-      if (name === "meetingId") updated.preferredRoleIds = new Set();
+      if (name === "meetingId") updated.preferredRoleIds = [];
       return updated;
     });
   };
@@ -313,10 +322,14 @@ function AvailableMemberForm() {
   const handleRoleChange = (e) => {
     const { value, checked } = e.target;
     setAvailableMember((prev) => {
-      const newRoles = new Set(prev.preferredRoleIds);
-      if (checked) newRoles.add(value);
-      else newRoles.delete(value);
-      return { ...prev, preferredRoleIds: newRoles };
+      const current = Array.isArray(prev.preferredRoleIds) ? [...prev.preferredRoleIds] : Array.from(prev.preferredRoleIds || []);
+      const idx = current.indexOf(value);
+      if (checked) {
+        if (idx === -1) current.push(value); // append to preserve selection order
+      } else {
+        if (idx !== -1) current.splice(idx, 1); // remove while preserving relative order
+      }
+      return { ...prev, preferredRoleIds: current };
     });
   };
 
@@ -327,9 +340,18 @@ function AvailableMemberForm() {
       return;
     }
     const disableRoles = ["UNAVAILABLE", "TENTATIVE"].includes(availableMember.availabilityStatus);
+    const orderedIds = disableRoles
+      ? []
+      : (Array.isArray(availableMember.preferredRoleIds)
+          ? availableMember.preferredRoleIds
+          : Array.from(availableMember.preferredRoleIds || []));
+
     const payload = {
       ...availableMember,
-      preferredRoleIds: disableRoles ? [] : Array.from(availableMember.preferredRoleIds),
+      // Preserve selection order via both fields for backend compatibility
+      preferredRoleIds: orderedIds,
+      preferredRoles: orderedIds.map((rid, idx) => ({ roleId: rid, preferenceRank: idx + 1 })),
+      preferredRoleOrder: orderedIds.join(','),
     };
 
     try {
@@ -428,7 +450,7 @@ function AvailableMemberForm() {
                 filteredRoles.map((role) => {
                   const isStatusDisabled = ['UNAVAILABLE', 'TENTATIVE'].includes(availableMember.availabilityStatus);
                   const isCapDisabled = role._isFull === true;
-                  const isMaxSelected = availableMember.preferredRoleIds.size >= 3 && !availableMember.preferredRoleIds.has(role.roleId);
+                  const isMaxSelected = (Array.isArray(availableMember.preferredRoleIds) ? availableMember.preferredRoleIds.length : Array.from(availableMember.preferredRoleIds || []).length) >= 3 && !(Array.isArray(availableMember.preferredRoleIds) ? availableMember.preferredRoleIds.includes(role.roleId) : (availableMember.preferredRoleIds || new Set()).has(role.roleId));
                   const disabled = isStatusDisabled || isCapDisabled || isMaxSelected;
                   const helper = isCapDisabled
                     ? 'All assigned'
@@ -442,7 +464,7 @@ function AvailableMemberForm() {
                         type="checkbox"
                         value={role.roleId}
                         id={`role-${role.roleId}`}
-                        checked={availableMember.preferredRoleIds.has(role.roleId)}
+                        checked={Array.isArray(availableMember.preferredRoleIds) ? availableMember.preferredRoleIds.includes(role.roleId) : (availableMember.preferredRoleIds || new Set()).has(role.roleId)}
                         onChange={handleRoleChange}
                         disabled={disabled}
                       />

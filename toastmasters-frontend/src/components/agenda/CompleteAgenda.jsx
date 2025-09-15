@@ -10,6 +10,9 @@ import Swal from "sweetalert2";
 // PDF generation will be handled directly in the component
 import './CompleteAgenda.css';
 import toastmastersLogo from '../../assets/img/image.png';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
 
 const CompleteAgenda = () => {
   const { meetingId } = useParams();
@@ -33,6 +36,10 @@ const CompleteAgenda = () => {
   const [assignedRoles, setAssignedRoles] = useState({});
 
   const [editSection, setEditSection] = useState(null);
+  // Modal visibility for full Agenda editing
+  const [showAgendaModal, setShowAgendaModal] = useState(false);
+  // Draft agenda data used only inside the modal so main page doesn't update while editing
+  const [agendaDraft, setAgendaDraft] = useState(null);
   // Drag-and-drop state for Meeting Agenda rows
   const [dragIndex, setDragIndex] = useState(null);
   // Drag-and-drop state for Speech block rows
@@ -40,6 +47,829 @@ const CompleteAgenda = () => {
   const [speechesInsertIndex, setSpeechesInsertIndex] = useState(null); // where to inject speeches
   const [selectedRowRef, setSelectedRowRef] = useState(null); // { zone: 'before'|'after'|'speech', index: number|null }
   const agendaRef = useRef(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isPublished, setIsPublished] = useState(() => {
+    try {
+      const mid = (typeof meetingId !== 'undefined' && meetingId) ? meetingId : null;
+      const key = mid ? `agenda_publish_${mid}` : null;
+      if (!key) return false;
+      const stored = localStorage.getItem(key);
+      return stored != null ? JSON.parse(stored) : false;
+    } catch { return false; }
+  });
+  const [publishing, setPublishing] = useState(false);
+  const publishStorageKey = meetingId ? `agenda_publish_${meetingId}` : null;
+  const [publishLoaded, setPublishLoaded] = useState(false);
+
+  // Lock background scroll when the full agenda modal is open
+  useEffect(() => {
+    if (showAgendaModal) {
+      document.body.classList.add('modal-open');
+    } else {
+      document.body.classList.remove('modal-open');
+    }
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, [showAgendaModal]);
+
+  // On mount/load, ensure we have the latest publish state from backend for all users
+  useEffect(() => {
+    let ignore = false;
+    const loadMeetingIfNeeded = async () => {
+      try {
+        if (!meetingId) return;
+        // Always fetch latest meeting data on mount to avoid stale publish state for non-VP users
+        let data = null;
+        if (typeof meetingService?.getMeetingById === 'function') {
+          data = await meetingService.getMeetingById(meetingId);
+        } else {
+          try {
+            const res = await fetch(`/api/meetings/${meetingId}`);
+            if (res.ok) data = await res.json();
+          } catch {}
+        }
+        if (!ignore && data) {
+          setMeetingData(data);
+          const val = !!(data.isPublish ?? data.published);
+          if (val !== undefined) {
+            setIsPublished(val);
+            if (publishStorageKey) try { localStorage.setItem(publishStorageKey, JSON.stringify(val)); } catch {}
+          }
+          setPublishLoaded(true);
+        }
+      } catch (e) {
+        console.warn('Initial publish state fetch failed:', e);
+        setPublishLoaded(true);
+      }
+    };
+    loadMeetingIfNeeded();
+    return () => { ignore = true; };
+  }, [meetingId]);
+
+  // Initialize publish flag from backend or localStorage (fallback)
+  useEffect(() => {
+    if (!meetingData) return;
+    
+    // Check for publish status in the response data structure
+    const getPublishStatus = (data) => {
+      // Check nested data first (response.data.data)
+      if (data?.data?.publish !== undefined) return data.data.publish;
+      // Then check direct properties
+      if (data?.publish !== undefined) return data.publish;
+      // Fallback to older field names if needed
+      if (data?.data?.isPublish !== undefined) return data.data.isPublish;
+      if (data?.isPublish !== undefined) return data.isPublish;
+      if (data?.data?.published !== undefined) return data.data.published;
+      if (data?.published !== undefined) return data.published;
+      return null;
+    };
+
+    const publishStatus = getPublishStatus(meetingData);
+    
+    if (publishStatus !== null) {
+      console.log('Initializing publish status from backend:', publishStatus);
+      setIsPublished(!!publishStatus);
+      if (publishStorageKey) {
+        try {
+          localStorage.setItem(publishStorageKey, JSON.stringify(!!publishStatus));
+        } catch (e) {
+          console.warn('Failed to update localStorage:', e);
+        }
+      }
+    } else if (publishStorageKey) {
+      // Fallback to localStorage if no status in backend response
+      try {
+        const stored = localStorage.getItem(publishStorageKey);
+        if (stored != null) {
+          const storedValue = JSON.parse(stored);
+          console.log('Initializing publish status from localStorage:', storedValue);
+          setIsPublished(storedValue);
+        }
+      } catch (e) {
+        console.warn('Failed to read from localStorage:', e);
+      }
+    }
+    
+    setPublishLoaded(true);
+  }, [meetingData, publishStorageKey]);
+
+  // Poll for publish status for non-VP users until published
+  useEffect(() => {
+    if (user?.role === 'vp education') return; // VP sees draft regardless
+    if (isPublished) return; // already published
+    if (!meetingId) return;
+    let timer = setInterval(async () => {
+      try {
+        let data = null;
+        if (typeof meetingService?.getMeetingById === 'function') {
+          data = await meetingService.getMeetingById(meetingId);
+        } else {
+          const res = await fetch(`/api/meetings/${meetingId}`);
+          if (res.ok) data = await res.json();
+        }
+        if (data) {
+          const val = !!(data.isPublish ?? data.published);
+          if (val) {
+            setIsPublished(true);
+            setMeetingData(data);
+            if (publishStorageKey) try { localStorage.setItem(publishStorageKey, JSON.stringify(true)); } catch {}
+            clearInterval(timer);
+          }
+        }
+      } catch {}
+    }, 15000); // 15s
+    return () => clearInterval(timer);
+  }, [user?.role, isPublished, meetingId, publishStorageKey]);
+
+  const handleTogglePublish = async () => {
+    if (publishing) return;
+    const current = !!isPublished;
+    const next = !current;
+    
+    // Confirmation dialog
+    const confirm = await Swal.fire({
+      title: next ? 'Publish Agenda?' : 'Unpublish Agenda?',
+      text: next 
+        ? 'This will make the agenda visible to all members.'
+        : 'This will hide the agenda from members.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#3085d6',
+      cancelButtonColor: '#d33',
+      confirmButtonText: next ? 'Yes, publish it!' : 'Yes, unpublish it',
+      cancelButtonText: 'Cancel'
+    });
+    
+    if (!confirm.isConfirmed) return;
+
+    // Optimistic update
+    setIsPublished(next);
+    setMeetingData(prev => prev ? { ...prev, isPublish: next, published: next } : prev);
+    
+    // Update local storage immediately for better UX
+    if (publishStorageKey) { 
+      try { 
+        localStorage.setItem(publishStorageKey, JSON.stringify(next)); 
+      } catch (e) {
+        console.warn('Failed to update localStorage:', e);
+      }
+    }
+
+    try {
+      setPublishing(true);
+      console.log('Toggling publish ->', next, 'for meetingId:', meetingData?.meetingId || meetingId);
+      
+      // Create a clean update payload with only the fields the backend expects
+      const updatePayload = {
+        theme: meetingData.theme,
+        date: meetingData.date,
+        startTime: meetingData.startTime,
+        endTime: meetingData.endTime,
+        venue: meetingData.venue,
+        category: meetingData.category,
+        publish: next, // Changed from isPublish to publish to match backend
+        // Include roles if they exist
+        ...(meetingData.roles && { roles: meetingData.roles })
+      };
+      
+      console.log('Prepared update payload:', JSON.stringify(updatePayload, null, 2));
+
+      let response;
+      // Try existing meetingService if present
+      if (typeof meetingService !== 'undefined' && meetingData?.meetingId) {
+        console.log('Sending update request with payload:', {
+          meetingId: meetingData.meetingId,
+          payload: updatePayload
+        });
+        
+        try {
+          response = await meetingService.updateMeeting(meetingData.meetingId, updatePayload);
+          console.log('Update response:', {
+            status: response.status,
+            statusText: response.statusText,
+            data: response.data
+          });
+        } catch (error) {
+          console.error('Update error:', {
+            message: error.message,
+            response: error.response ? {
+              status: error.response.status,
+              statusText: error.response.statusText,
+              data: error.response.data
+            } : 'No response',
+            request: error.request
+          });
+          throw error;
+        }
+      } else if (meetingData?.meetingId) {
+        // Fallback generic fetch
+        console.log('Using fallback fetch with payload:', updatePayload);
+        const fetchResponse = await fetch(`/api/meetings/${meetingData.meetingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatePayload)
+        });
+        
+        const responseData = await fetchResponse.json();
+        console.log('Fallback fetch response:', {
+          status: fetchResponse.status,
+          ok: fetchResponse.ok,
+          data: responseData
+        });
+        
+        if (!fetchResponse.ok) {
+          throw new Error(`Failed to update meeting status: ${fetchResponse.status} ${fetchResponse.statusText}`);
+        }
+        
+        response = { data: responseData };
+      } else {
+        throw new Error('No meeting ID available');
+      }
+      
+      // Update local state with the response
+      if (response?.data) {
+        // Get the published status from the response (using 'publish' field)
+        const publishedStatus = response.data.publish ?? false;
+        console.log('Updating local state with published status from backend:', publishedStatus);
+        
+        // Update both the meeting data and local state
+        setMeetingData(prev => ({
+          ...prev,
+          ...response.data,
+          isPublish: publishedStatus,  // For backward compatibility
+          publish: publishedStatus     // New field name
+        }));
+        
+        // Update the published state
+        setIsPublished(publishedStatus);
+        
+        // Update local storage if needed
+        if (publishStorageKey) {
+          try {
+            localStorage.setItem(publishStorageKey, JSON.stringify(publishedStatus));
+          } catch (e) {
+            console.warn('Failed to update localStorage:', e);
+          }
+        }
+      }
+      
+      Swal.fire('Success', `Agenda ${next ? 'published' : 'unpublished'} successfully.`, 'success');
+    } catch (err) {
+      console.error('Publish toggle failed', err);
+      // Revert optimistic update on error
+      setIsPublished(!next);
+      setMeetingData(prev => prev ? { ...prev, isPublish: !next, published: !next } : prev);
+      Swal.fire('Error', 'Failed to update publish status. Please try again.', 'error');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // Utility: Ensure each word of a name is Title Cased
+  const toTitleCase = (str) => {
+    if (!str) return '';
+    // Handle multiple spaces and hyphenated names gracefully
+    return String(str)
+      .split(' ')
+      .map(part => part
+        .split('-')
+        .map(seg => seg ? seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase() : seg)
+        .join('-')
+      )
+      .join(' ');
+  };
+
+  // === TimeInput: preserves caret and formats to mm:ss / hh:mm:ss while typing ===
+  const TimeInput = React.memo(({ value, onChange, onBlur, placeholder, className, stopRowHandlers = true }) => {
+    const [focused, setFocused] = useState(false);
+    const [val, setVal] = useState(formatDurationForInput(value) || '');
+    const ref = useRef(null);
+
+    useEffect(() => {
+      if (!focused) {
+        setVal(formatDurationForInput(value) || '');
+      }
+    }, [value, focused]);
+
+    const formatPartial = (raw) => {
+      const digits = (raw || '').replace(/[^0-9]/g, '');
+      if (digits.length <= 2) return digits; // s or ss (we treat as mm when complete)
+      if (digits.length <= 4) {
+        const mm = digits.slice(0, digits.length - 2);
+        const ss = digits.slice(-2);
+        return `${mm}:${ss}`;
+      }
+      const hh = digits.slice(0, digits.length - 4);
+      const mm = digits.slice(-4, -2);
+      const ss = digits.slice(-2);
+      return `${hh}:${mm}:${ss}`;
+    };
+
+    const handleChange = (e) => {
+      const prev = val;
+      const caret = e.target.selectionStart ?? prev.length;
+      const typed = e.target.value;
+      const formatted = formatPartial(typed);
+      setVal(formatted);
+      if (onChange) onChange({ target: { value: formatted } });
+      requestAnimationFrame(() => {
+        if (ref.current) {
+          const delta = formatted.length - prev.length;
+          const pos = Math.min(formatted.length, Math.max(0, (caret + delta)));
+          try { ref.current.setSelectionRange(pos, pos); } catch {}
+        }
+      });
+    };
+
+    const handleBlur = () => {
+      const formatted = formatDurationForInput(val) || val;
+      setVal(formatted);
+      if (onBlur) onBlur({ target: { value: formatted } });
+      setFocused(false);
+      setIsTyping(false);
+    };
+
+    return (
+      <input
+        ref={ref}
+        type="text"
+        className={className}
+        placeholder={placeholder}
+        value={val}
+        onFocus={() => { setFocused(true); setIsTyping(true); }}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onClick={stopRowHandlers ? (e)=> e.stopPropagation() : undefined}
+        onMouseDown={stopRowHandlers ? (e)=> e.stopPropagation() : undefined}
+        onKeyDown={stopRowHandlers ? (e)=> e.stopPropagation() : undefined}
+      />
+    );
+  });
+
+  // Renders the Meeting Agenda table. Pass editing=true to enable full editing controls.
+  const AgendaTable = ({ editing = false }) => {
+    // Use draft only when editing; use live data for read-only view
+    const currentAgenda = editing ? (agendaDraft ?? agendaJoinData) : agendaJoinData;
+    const setCurrentAgenda = (next) => {
+      if (editing) {
+        setAgendaDraft(typeof next === 'function' ? next(agendaDraft ?? agendaJoinData) : next);
+      } else {
+        setAgendaJoinData(typeof next === 'function' ? next(agendaJoinData) : next);
+      }
+    };
+
+    // Local helpers to add rows/sections that operate on the current agenda source (draft while editing)
+    const addRowAfterIndexLocal = (idx) => {
+      setCurrentAgenda((prev) => {
+        const base = prev || {};
+        const list = [...(base.agenda || [])];
+        const insertIdx = Math.min(Math.max(0, idx + 1), list.length);
+        const row = {
+          agendaId: null,
+          clientKey: `ag-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+          minTime: '',
+          avgTime: '',
+          maxTime: '',
+          activity: '',
+          member: { memberId: null, memberName: '' },
+        };
+        list.splice(insertIdx, 0, row);
+        return { ...base, agenda: list };
+      });
+    };
+
+    const addSectionAfterIndexLocal = (idx) => {
+      setCurrentAgenda((prev) => {
+        const base = prev || {};
+        const list = [...(base.agenda || [])];
+        const insertIdx = Math.min(Math.max(0, idx + 1), list.length);
+        const section = makeSectionHeader('');
+        // ensure section has a persistent clientKey
+        section.clientKey = section.clientKey || `sec-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+        list.splice(insertIdx, 0, section);
+        return { ...base, agenda: list };
+      });
+    };
+    return (
+      <div className={`table-responsive ${editing ? 'editing-mode' : ''}`}>
+        <table className="table table-bordered agenda-grid">
+          <thead>
+            <tr>
+              <th width="120">TIME</th>
+              <th width="80" className="text-center">MIN</th>
+              <th width="80" className="text-center">AVG</th>
+              <th width="80" className="text-center">MAX</th>
+              <th>ACTIVITY</th>
+              <th width="220">PRESENTER</th>
+              {editing && <th width="60">Action</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              const start = parseHMToDate(meetingData?.startTime);
+              let cursor = start ? new Date(start) : null;
+              const rows = [];
+
+              const pushRow = (a, idx, isSpeech = false, zone = 'before') => {
+                if (a.rowType === 'section') {
+                  rows.push(
+                    <tr
+                      key={`sec-${a.clientKey ?? a.agendaId ?? idx}`}
+                      className={`table-secondary ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
+                      onClick={()=> setSelectedRowRef({ zone, index: idx })}
+                      draggable={editing}
+                      onDragStart={() => handleAgendaDragStart(idx)}
+                      onDragOver={handleAgendaDragOver}
+                      onDrop={() => handleAgendaDrop(idx)}
+                      style={{ cursor: editing ? 'move' : 'pointer' }}
+                    >
+                      {editing ? (
+                        <>
+                          <td className="text-center position-relative" colSpan={6}>
+                            <input
+                              className="form-control text-center fw-bold"
+                              defaultValue={a.activity || ''}
+                              placeholder="SECTION TITLE"
+                              onClick={(e)=> e.stopPropagation()}
+                              onMouseDown={(e)=> e.stopPropagation()}
+                              onKeyDown={(e)=> e.stopPropagation()}
+                              onFocus={()=> setIsTyping(true)}
+                              onBlur={(e)=>{
+                                const updated = [...currentAgenda.agenda];
+                                updated[idx].activity = e.target.value;
+                                setCurrentAgenda({ ...currentAgenda, agenda: updated });
+                                setIsTyping(false);
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <i
+                              className="bi bi-trash text-danger delete-icon"
+                              title="Delete section"
+                              role="button"
+                              onClick={(ev)=>{ ev.stopPropagation(); confirmDeleteSection(idx); }}
+                            ></i>
+                          </td>
+                        </>
+                      ) : (
+                        <td className="text-center position-relative" colSpan={6}>
+                          <strong>{(a.activity || '').toUpperCase()}</strong>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                  return;
+                }
+                const min = isSpeech ? (a.minSpeechTime || "") : (a.minTime || "");
+                let avg = isSpeech ? (a.avgSpeechTime || "") : (a.avgTime || "");
+                const max = isSpeech ? (a.maxSpeechTime || "") : (a.maxTime || "");
+                if (isSpeech && !editing) {
+                  const minSecs = parseDurationToSeconds(min);
+                  const maxSecs = parseDurationToSeconds(max);
+                  if (minSecs > 0 && maxSecs > 0) {
+                    avg = Math.round((minSecs + maxSecs) / 2);
+                  }
+                }
+                // While typing in any input, avoid changing the computed time columns to prevent row reflows
+                const useDurSec = (editing && isTyping)
+                  ? 0
+                  : (parseDurationToSeconds(max || avg || min || 0) || 0);
+                const timeStr = cursor ? fmtClock(cursor) : "";
+                if (cursor) cursor = addSecondsDate(cursor, useDurSec);
+
+                const hasOnlyOne = (!!min + !!avg + !!max) === 1;
+                const presenterName = a.rowType === 'break' ? '' : (isSpeech
+                  ? getMemberNameById(a.member?.memberId)
+                  : getMemberNameById(a.member?.memberId));
+                const activityText = isSpeech
+                  ? (() => {
+                      const L = a.level ? `L${a.level}` : "";
+                      const P = a.projectNo ? `P${a.projectNo}` : "";
+                      const bits = [L, P, a.speechTitle].filter(Boolean);
+                      return bits.join("  ");
+                    })()
+                  : a.activity;
+
+                rows.push(
+                  <tr
+                    key={`ag-${isSpeech ? 'sp' : 'ag'}-${a.clientKey ?? a.agendaId ?? a.speakerSpeechId ?? idx}`}
+                    className={`${editing ? '' : 'fade-in'} ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
+                    onClick={(e)=> {
+                      const tag = e.target.tagName;
+                      if (isTyping || ['SELECT','OPTION','INPUT','BUTTON','TEXTAREA','I','SPAN'].includes(tag)) return;
+                      setSelectedRowRef({ zone: isSpeech ? 'speech' : zone, index: isSpeech ? null : idx });
+                    }}
+                    onMouseDown={(e)=>{
+                      const tag = e.target.tagName;
+                      if (isTyping || ['SELECT','OPTION','INPUT','BUTTON','TEXTAREA','I','SPAN'].includes(tag)) return;
+                    }}
+                    draggable={editing && !isTyping}
+                    onDragStart={(e) => {
+                      const tag = e.target.tagName;
+                      if (['SELECT','OPTION','INPUT','BUTTON','TEXTAREA'].includes(tag)) { e.preventDefault(); return; }
+                      return isSpeech ? handleSpeechDragStart(idx) : handleAgendaDragStart(idx);
+                    }}
+                    onDragOver={(e) => (isSpeech ? handleSpeechDragOver(e) : handleAgendaDragOver(e))}
+                    onDrop={() => (isSpeech ? handleSpeechDrop(idx) : handleAgendaDrop(idx))}
+                    style={{ cursor: editing ? 'move' : 'pointer' }}
+                  >
+                    <td>{timeStr}</td>
+                    {editing && isSpeech ? (
+                      <>
+                        <td>
+                          <TimeInput
+                            className="form-control form-control-sm text-center"
+                            placeholder="mm:ss or hh:mm:ss"
+                            value={min || ''}
+                            onChange={() => { /* defer commit to onBlur to avoid rerenders */ }}
+                            onBlur={(e)=>{
+                              const updated = [...(currentAgenda.speakerSpeech || [])];
+                              const listIdx = Math.min(Math.max(0, idx), updated.length - 1);
+                              if (!updated[listIdx]) return;
+                              updated[listIdx].minSpeechTime = e.target.value;
+                              setCurrentAgenda({ ...currentAgenda, speakerSpeech: updated });
+                              setIsTyping(false);
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <TimeInput
+                            className="form-control form-control-sm text-center"
+                            placeholder="mm:ss or hh:mm:ss"
+                            value={avg || ''}
+                            onChange={() => { /* defer commit to onBlur to avoid rerenders */ }}
+                            onBlur={(e)=>{
+                              const updated = [...(currentAgenda.speakerSpeech || [])];
+                              const listIdx = Math.min(Math.max(0, idx), updated.length - 1);
+                              if (!updated[listIdx]) return;
+                              updated[listIdx].avgSpeechTime = e.target.value;
+                              setCurrentAgenda({ ...currentAgenda, speakerSpeech: updated });
+                              setIsTyping(false);
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <TimeInput
+                            className="form-control form-control-sm text-center"
+                            placeholder="mm:ss or hh:mm:ss"
+                            value={max || ''}
+                            onChange={() => { /* defer commit to onBlur to avoid rerenders */ }}
+                            onBlur={(e)=>{
+                              const updated = [...(currentAgenda.speakerSpeech || [])];
+                              const listIdx = Math.min(Math.max(0, idx), updated.length - 1);
+                              if (!updated[listIdx]) return;
+                              updated[listIdx].maxSpeechTime = e.target.value;
+                              setCurrentAgenda({ ...currentAgenda, speakerSpeech: updated });
+                              setIsTyping(false);
+                            }}
+                          />
+                        </td>
+                      </>
+                    ) : editing && !isSpeech ? (
+                      <>
+                        <td>
+                          <TimeInput
+                            className="form-control form-control-sm text-center"
+                            placeholder="mm or mm:ss"
+                            value={min || ''}
+                            onChange={() => { /* defer commit to onBlur to avoid rerenders */ }}
+                            onBlur={(e)=>{
+                              const updated = [...currentAgenda.agenda];
+                              updated[idx].minTime = e.target.value;
+                              setCurrentAgenda({ ...currentAgenda, agenda: updated });
+                              setIsTyping(false);
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <TimeInput
+                            className="form-control form-control-sm text-center"
+                            placeholder="mm or mm:ss"
+                            value={avg || ''}
+                            onChange={() => { /* defer commit to onBlur to avoid rerenders */ }}
+                            onBlur={(e)=>{
+                              const updated = [...currentAgenda.agenda];
+                              updated[idx].avgTime = e.target.value;
+                              setCurrentAgenda({ ...currentAgenda, agenda: updated });
+                              setIsTyping(false);
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <TimeInput
+                            className="form-control form-control-sm text-center"
+                            placeholder="mm or mm:ss"
+                            value={max || ''}
+                            onChange={() => { /* defer commit to onBlur to avoid rerenders */ }}
+                            onBlur={(e)=>{
+                              const updated = [...currentAgenda.agenda];
+                              updated[idx].maxTime = e.target.value;
+                              setCurrentAgenda({ ...currentAgenda, agenda: updated });
+                              setIsTyping(false);
+                            }}
+                          />
+                        </td>
+                      </>
+                    ) : (
+                      hasOnlyOne ? (
+                        <td colSpan={3} className="text-center fw-bold">{formatDurationHMS(avg || min || max)}</td>
+                      ) : (
+                        <>
+                          <td className="text-center time-min">{formatDurationHMS(min)}</td>
+                          <td className="text-center time-avg">{formatDurationHMS(avg)}</td>
+                          <td className="text-center time-max">{formatDurationHMS(max)}</td>
+                        </>
+                      )
+                    )}
+                    <td>
+                      {editing && !isSpeech && a.rowType !== 'section' ? (
+                        <input
+                          className="form-control"
+                          defaultValue={a.activity || ''}
+                          placeholder="Activity"
+                          onFocus={()=> setIsTyping(true)}
+                          onBlur={(e)=>{
+                            const updated = [...currentAgenda.agenda];
+                            updated[idx].activity = e.target.value;
+                            setCurrentAgenda({ ...currentAgenda, agenda: updated });
+                            setIsTyping(false);
+                          }}
+                          onClick={(e)=> e.stopPropagation()}
+                          onMouseDown={(e)=> e.stopPropagation()}
+                          onKeyDown={(e)=> e.stopPropagation()}
+                        />
+                      ) : (
+                        <strong>{activityText}</strong>
+                      )}
+                    </td>
+                    <td className="presenter-cell">
+                      {editing && !isSpeech && a.rowType !== 'break' && a.rowType !== 'section' ? (
+                        <select
+                          className="form-select presenter-select"
+                          value={a.member?.memberId || ''}
+                          onChange={(e) => {
+                            const updated = [...currentAgenda.agenda];
+                            const val = e.target.value;
+                            updated[idx].member = val ? { memberId: Number(val) } : null;
+                            setCurrentAgenda({ ...currentAgenda, agenda: updated });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <option value="">Select presenter</option>
+
+                          {/* Available with Assigned Roles */}
+                          {members.filter(m => {
+                            const isAvailable = availableMembers.some(am => am.memberId === m.memberId);
+                            const hasAssigned = (assignedRoles[m.memberId]?.length || 0) > 0;
+                            return isAvailable && hasAssigned;
+                          }).length > 0 && (
+                            <optgroup label="Available with Assigned Roles">
+                              {members
+                                .filter(m => {
+                                  const isAvailable = availableMembers.some(am => am.memberId === m.memberId);
+                                  const hasAssigned = (assignedRoles[m.memberId]?.length || 0) > 0;
+                                  return isAvailable && hasAssigned;
+                                })
+                                .sort((a, b) => a.memberName.localeCompare(b.memberName))
+                                .map(member => {
+                                  const memberRoles = assignedRoles[member.memberId] || [];
+                                  const roleText = getRoleNames(memberRoles).join(', ');
+                                  return (
+                                    <option key={`avail-with-roles-${member.memberId}`} value={member.memberId} title={`Assigned roles: ${roleText}`}>
+                                      {toTitleCase(member.memberName)} ({roleText})
+                                    </option>
+                                  );
+                                })}
+                            </optgroup>
+                          )}
+
+                          {/* Available (No Role Assignments) */}
+                          {members.filter(m => {
+                            const isAvailable = availableMembers.some(am => am.memberId === m.memberId);
+                            const hasAssigned = (assignedRoles[m.memberId]?.length || 0) > 0;
+                            const hasPrefs = availableMembers.some(am => am.memberId === m.memberId && ((am.roles && am.roles.length) || (am.preferredRoles && am.preferredRoles.length)));
+                            return isAvailable && !hasAssigned && !hasPrefs;
+                          }).length > 0 && (
+                            <optgroup label="Available (No Role Assignments)">
+                              {members
+                                .filter(m => {
+                                  const isAvailable = availableMembers.some(am => am.memberId === m.memberId);
+                                  const hasAssigned = (assignedRoles[m.memberId]?.length || 0) > 0;
+                                  const hasPrefs = availableMembers.some(am => am.memberId === m.memberId && ((am.roles && am.roles.length) || (am.preferredRoles && am.preferredRoles.length)));
+                                  return isAvailable && !hasAssigned && !hasPrefs;
+                                })
+                                .sort((a, b) => a.memberName.localeCompare(b.memberName))
+                                .map(member => (
+                                  <option key={`avail-no-assignments-${member.memberId}`} value={member.memberId} title="Available but not assigned any roles">
+                                    {toTitleCase(member.memberName)}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          )}
+
+                          {/* Available with Preferred Roles */}
+                          {members.filter(m => {
+                            const isAvailable = availableMembers.some(am => am.memberId === m.memberId);
+                            const hasAssigned = (assignedRoles[m.memberId]?.length || 0) > 0;
+                            const hasPrefs = availableMembers.some(am => am.memberId === m.memberId && ((am.roles && am.roles.length) || (am.preferredRoles && am.preferredRoles.length)));
+                            return isAvailable && !hasAssigned && hasPrefs;
+                          }).length > 0 && (
+                            <optgroup label="Available Members (No role assigned)">
+                              {members
+                                .filter(m => {
+                                  const isAvailable = availableMembers.some(am => am.memberId === m.memberId);
+                                  const hasAssigned = (assignedRoles[m.memberId]?.length || 0) > 0;
+                                  const hasPrefs = availableMembers.some(am => am.memberId === m.memberId && ((am.roles && am.roles.length) || (am.preferredRoles && am.preferredRoles.length)));
+                                  return isAvailable && !hasAssigned && hasPrefs;
+                                })
+                                .sort((a, b) => a.memberName.localeCompare(b.memberName))
+                                .map(member => (
+                                  <option key={`avail-preferred-${member.memberId}`} value={member.memberId}>
+                                    {toTitleCase(member.memberName)}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          )}
+
+                          {/* Unavailable Members */}
+                          {members.filter(m => !availableMembers.some(am => am.memberId === m.memberId)).length > 0 && (
+                            <optgroup label="Unavailable Members">
+                              {members
+                                .filter(member => !availableMembers.some(am => am.memberId === member.memberId))
+                                .sort((a, b) => a.memberName.localeCompare(b.memberName))
+                                .map(member => {
+                                  const memberRoles = assignedRoles[member.memberId] || [];
+                                  const roleText = getRoleNames(memberRoles).join(', ');
+                                  return (
+                                    <option key={`unavailable-${member.memberId}`} value={member.memberId} className="unavailable-option" title={roleText ? `Assigned roles: ${roleText}` : 'No roles assigned'}>
+                                      {toTitleCase(member.memberName)} (Not available){roleText && ` - ${roleText}`}
+                                    </option>
+                                  );
+                                })}
+                            </optgroup>
+                          )}
+                        </select>
+                      ) : (
+                        <div className="presenter-name">
+                          {toTitleCase(presenterName) || (a.rowType !== 'break' ? 'TBD' : '')}
+                        </div>
+                      )}
+                    </td>
+                    {editing && (
+                      <td>
+                        {!isSpeech && (
+                          <>
+                            <i
+                              className="bi bi-plus-circle text-primary me-2 delete-icon"
+                              title="Add row after"
+                              role="button"
+                              onClick={(e) => { e.stopPropagation(); addRowAfterIndexLocal(idx); }}
+                            ></i>
+                            <i
+                              className="bi bi-card-heading text-secondary me-2 delete-icon"
+                              title="Add section after"
+                              role="button"
+                              onClick={(e) => { e.stopPropagation(); addSectionAfterIndexLocal(idx); }}
+                            ></i>
+                          </>
+                        )}
+                        {isSpeech ? (
+                          <i className="bi bi-trash text-danger delete-icon" onClick={() => confirmDeleteSpeech(idx)} title="Delete prepared speech" role="button"></i>
+                        ) : (
+                          <i className="bi bi-trash text-danger delete-icon" onClick={() => confirmDeleteAgendaRow(idx)} title="Delete agenda item" role="button"></i>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              };
+
+              const agendaList = currentAgenda.agenda || [];
+              const spList = currentAgenda.speakerSpeech || [];
+              const insertAt = Math.min(Math.max(0, speechesInsertIndex ?? agendaList.length), agendaList.length);
+
+              agendaList.slice(0, insertAt).forEach((a, idx) => pushRow(a, idx, false));
+              if (spList.length > 0) {
+                const isSelectedHeader = selectedRowRef?.zone === 'speech' && selectedRowRef?.index == null;
+                rows.push(
+                  <tr key="ps-header" className={`table-secondary ${isSelectedHeader ? 'table-warning' : ''}`} onClick={()=> setSelectedRowRef({ zone: 'speech', index: null, header: true })} style={{ cursor: 'pointer' }} title="Click to insert after speeches">
+                    <td className="text-center" colSpan={editing ? 7 : 6}><strong>PREPARED SPEECHES SESSION</strong></td>
+                  </tr>
+                );
+                spList.forEach((s, i) => pushRow(s, i, true));
+              }
+              agendaList.slice(insertAt).forEach((a, idx) => pushRow(a, insertAt + idx, false));
+
+              return rows;
+            })()}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   const loadScript = (src) => {
     return new Promise((resolve, reject) => {
@@ -55,179 +885,395 @@ const CompleteAgenda = () => {
     });
   };
 
-  const handleDownloadPDF = async () => {
-    if (!agendaRef.current) {
-      Swal.fire('Error', 'Agenda content not found', 'error');
+  const handleDownloadPDF = () => {
+    if (!agendaJoinData || !meetingData) {
+      Swal.fire('Error', 'Agenda data not loaded yet', 'warning');
       return;
     }
 
-    const loadingSwal = Swal.fire({
-      title: 'Generating PDF',
-      html: 'Preparing document...',
-      allowOutsideClick: false,
-      didOpen: () => Swal.showLoading()
-    });
+    console.log('agendaJoinData:', JSON.stringify(agendaJoinData, null, 2)); // Debug log
+
+    const addHeader = (pdf, pageNumber) => {
+      const logoWidth = 25;
+      const logoHeight = 25;
+      pdf.addImage(toastmastersLogo, 'PNG', 14, 10, logoWidth, logoHeight);
+      
+      pdf.setFontSize(14);
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Toastmasters Club Agenda', 105, 20, { align: 'center' });
+      
+      const meetingDate = meetingData?.meetingDate
+        ? new Date(meetingData.meetingDate).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })
+        : 'N/A';
+      
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Meeting Date: ${meetingDate}`, 105, 26, { align: 'center' });
+      
+      // Add page number
+      pdf.setFontSize(8);
+      pdf.text(`Page ${pageNumber}`, 200, 10, { align: 'right' });
+      
+      // Add a line under header
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setLineWidth(0.5);
+      pdf.line(14, 32, 196, 32);
+      
+      return 35; // Return the Y position after header
+    };
 
     try {
-      // Load scripts from CDN
-      await loadingSwal.update({ html: 'Loading PDF tools...' });
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      let currentY = 0;
+      let pageNumber = 1;
       
-      await Promise.all([
-        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
-        loadScript('https://html2canvas.hertzen.com/dist/html2canvas.min.js')
-      ]);
+      currentY = addHeader(pdf, pageNumber);
 
-      const { jsPDF } = window.jspdf;
-      const html2canvas = window.html2canvas;
-
-      // Create a clean container for the PDF content
-      const printContainer = document.createElement('div');
-      printContainer.style.width = '210mm';
-      printContainer.style.padding = '15mm';
-      printContainer.style.margin = '0 auto';
-      printContainer.style.backgroundColor = 'white';
-      printContainer.style.boxSizing = 'border-box';
-      printContainer.style.fontFamily = 'Arial, sans-serif';
-
-      // Clone the agenda content
-      const element = agendaRef.current.cloneNode(true);
-      
-      // Remove interactive elements
-      const elementsToRemove = element.querySelectorAll(
-        'button, .btn, .no-print, .edit-btn, [onclick], .action-buttons, .drag-handle, .speech-actions, .agenda-actions, .agenda-controls, .print-hide'
-      );
-      elementsToRemove.forEach(el => el.remove());
-
-      // Add print-specific styles
-      const style = document.createElement('style');
-      style.textContent = `
-        @page { 
-          margin: 0;
-          size: A4 portrait;
-        }
-        body { 
-          margin: 0; 
-          padding: 0; 
-          background: white;
-          -webkit-print-color-adjust: exact !important;
-          color-adjust: exact !important;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 15px;
-        }
-        th, td {
-          border: 1px solid #ddd;
-          padding: 8px;
-          text-align: left;
-        }
-        th {
-          background-color: #f2f2f2;
-        }
-        .agenda-header {
-          text-align: center;
-          margin-bottom: 20px;
-        }
-        .agenda-header h2 {
-          margin: 0;
-          color: #2c3e50;
-        }
-        .agenda-date {
-          font-size: 1.1em;
-          color: #555;
-          margin: 10px 0;
-        }
-      `;
-
-      // Create a temporary container
-      const tempDiv = document.createElement('div');
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.left = '-9999px';
-      tempDiv.style.width = '210mm';
-      tempDiv.appendChild(printContainer);
-      printContainer.appendChild(element);
-      document.body.appendChild(tempDiv);
-      document.head.appendChild(style);
-
-      try {
-        await loadingSwal.update({ html: 'Generating PDF...' });
-        
-        // Calculate content height for proper scaling
-        const contentHeight = element.scrollHeight;
-        const pageHeight = 297; // A4 height in mm
-        const scale = (pageHeight - 30) / (contentHeight * 0.35); // Convert px to mm with some padding
-        
-        const canvas = await html2canvas(element, {
-          scale: 1.5, // Slightly higher resolution
-          useCORS: true,
-          logging: true,
-          allowTaint: true,
-          scrollX: 0,
-          scrollY: 0,
-          width: element.offsetWidth,
-          height: contentHeight,
-          windowWidth: element.scrollWidth,
-          windowHeight: contentHeight,
-          backgroundColor: '#FFFFFF'
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF({
-          orientation: 'portrait',
-          unit: 'mm',
-          format: 'a4',
-          compress: true
-        });
-
-        // Calculate dimensions to fit page
-        const pageWidth = pdf.internal.pageSize.getWidth() - 20; // 10mm margins
-        const pageHeightPdf = pdf.internal.pageSize.getHeight() - 20;
-        const imgProps = pdf.getImageProperties(imgData);
-        const pdfHeight = (imgProps.height * pageWidth) / imgProps.width;
-
-        // Add first page
-        pdf.addImage(imgData, 'PNG', 10, 10, pageWidth, pdfHeight);
-        
-        // Add additional pages if needed
-        let heightLeft = pdfHeight - pageHeightPdf;
-        let position = 10 - pageHeightPdf;
-        
-        while (heightLeft > 0) {
-          pdf.addPage();
-          pdf.addImage(imgData, 'PNG', 10, position, pageWidth, pdfHeight);
-          heightLeft -= pageHeightPdf;
-          position -= pageHeightPdf;
-        }
-
-        const meetingDate = meetingData?.meetingDate 
-          ? new Date(meetingData.meetingDate).toISOString().split('T')[0]
-          : 'agenda';
-        
-        pdf.save(`Toastmasters-Agenda-${meetingDate}.pdf`);
-        
-      } finally {
-        // Clean up
-        document.body.removeChild(tempDiv);
-        document.head.removeChild(style);
+    // Club Officers Section
+    if (agendaJoinData.clubOfficers && agendaJoinData.clubOfficers.length) {
+      // Check if we need a new page
+      if (currentY > 250) {
+        pdf.addPage();
+        pageNumber++;
+        currentY = addHeader(pdf, pageNumber);
       }
       
-      await loadingSwal.close();
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(0, 0, 0);
+      pdf.text('Club Officers', 14, currentY);
+      currentY += 8;
       
-    } catch (error) {
-      console.error('PDF Generation Error:', error);
-      
-      if (Swal.isVisible()) {
-        await Swal.fire({
-          icon: 'error',
-          title: 'PDF Generation Failed',
-          text: 'An error occurred while generating the PDF. Please try again.',
-          footer: error.message ? `Error: ${error.message}` : ''
-        });
-      }
+      autoTable(pdf, {
+        startY: currentY,
+        head: [['Role', 'Name']],
+        headStyles: { 
+          fillColor: [41, 128, 185],
+          textColor: 255,
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        body: agendaJoinData.clubOfficers.map(officer => ({
+          'Role': officer.role || 'N/A',
+          'Name': officer.member?.memberName || officer.name || 'Unassigned'
+        })),
+        theme: 'grid',
+        styles: { 
+          fontSize: 10,
+          cellPadding: 3,
+          lineColor: [200, 200, 200],
+          lineWidth: 0.1
+        },
+        margin: { left: 14, right: 14 },
+        didDrawPage: (data) => {
+          // Handle page breaks
+          if (data.cursor.y > 250) {
+            pdf.addPage();
+            pageNumber++;
+            currentY = addHeader(pdf, pageNumber);
+          } else {
+            currentY = data.cursor.y + 10;
+          }
+        }
+      });
+      currentY = pdf.lastAutoTable.finalY + 10;
     }
-  };
 
+    // Agenda Items Section
+    if (agendaJoinData.agenda && agendaJoinData.agenda.length) {
+      // Check if we need a new page
+      if (currentY > 230) {
+        pdf.addPage();
+        pageNumber++;
+        currentY = addHeader(pdf, pageNumber);
+      }
+      
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Meeting Agenda', 14, currentY);
+      currentY += 8;
+      
+      // Group agenda items by time slot for better organization
+      const timeSlots = {};
+      agendaJoinData.agenda.forEach(item => {
+        const time = item.time || 'Unspecified Time';
+        if (!timeSlots[time]) {
+          timeSlots[time] = [];
+        }
+        timeSlots[time].push(item);
+      });
+      
+      // Process each time slot
+      Object.entries(timeSlots).forEach(([time, items]) => {
+        // Check if we need a new page before adding time slot
+        if (currentY > 230) {
+          pdf.addPage();
+          pageNumber++;
+          currentY = addHeader(pdf, pageNumber);
+        }
+        
+        // Add time slot header
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(time, 14, currentY);
+        currentY += 5;
+        
+        // Add items for this time slot
+        items.forEach((item, index) => {
+          if (currentY > 250) {
+            pdf.addPage();
+            pageNumber++;
+            currentY = addHeader(pdf, pageNumber);
+          }
+          
+          pdf.setFontSize(9);
+          pdf.setFont('helvetica', 'normal');
+          
+          // Activity in bold
+          pdf.setFont('helvetica', 'bold');
+          pdf.text(`• ${item.activity || 'Activity'}`, 20, currentY);
+          
+          // Assigned to in normal weight on the same line if space, otherwise on next line
+          const assignedTo = item.member?.memberName || item.assignedTo || '';
+          const activityWidth = pdf.getStringUnitWidth(item.activity || '') * 9 / pdf.internal.scaleFactor;
+          
+          if (activityWidth < 100 && assignedTo) {
+            pdf.setFont('helvetica', 'normal');
+            pdf.text(` - ${assignedTo}`, 21 + activityWidth, currentY);
+          } else if (assignedTo) {
+            currentY += 4;
+            pdf.text(`  (${assignedTo})`, 21, currentY);
+          }
+          
+          currentY += 5;
+        });
+        
+        currentY += 3; // Extra space between time slots
+      });
+      
+      currentY += 5; // Extra space after section
+    }
+
+    // Speaker Speeches Section
+    if (agendaJoinData.speakerSpeech && agendaJoinData.speakerSpeech.length) {
+      // Check if we need a new page
+      if (currentY > 220) {
+        pdf.addPage();
+        pageNumber++;
+        currentY = addHeader(pdf, pageNumber);
+      }
+      
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Prepared Speeches', 14, currentY);
+      currentY += 8;
+      
+      // Process each speech
+      agendaJoinData.speakerSpeech.forEach((speech, index) => {
+        // Check if we need a new page before adding speech
+        if (currentY > 250) {
+          pdf.addPage();
+          pageNumber++;
+          currentY = addHeader(pdf, pageNumber);
+        }
+        
+        const speakerName = speech.member?.memberName || speech.speakerName || 'Speaker';
+        const speechTitle = speech.title || 'Untitled Speech';
+        const speechLevel = speech.level ? `L${speech.level}` : '';
+        const speechProject = speech.project ? `P${speech.project}` : '';
+        const speechInfo = [speechLevel, speechProject].filter(Boolean).join(' / ');
+        
+        // Speech title in bold
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(`• ${speechTitle}`, 20, currentY);
+        currentY += 5;
+        
+        // Speaker and project info
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(9);
+        
+        // First line: Speaker name and speech info (level/project)
+        pdf.text(`  ${speakerName}`, 22, currentY);
+        if (speechInfo) {
+          const nameWidth = pdf.getStringUnitWidth(speakerName) * 9 / pdf.internal.scaleFactor;
+          pdf.text(` (${speechInfo})`, 22 + nameWidth + 2, currentY);
+        }
+        currentY += 4;
+        
+        // Evaluator if exists
+        if (speech.evaluatorName) {
+          pdf.text(`  Evaluator: ${speech.evaluatorName}`, 22, currentY);
+          currentY += 4;
+        }
+        
+        // Speech description if exists
+        if (speech.description) {
+          const descLines = pdf.splitTextToSize(speech.description, 170);
+          pdf.text(descLines, 22, currentY);
+          currentY += descLines.length * 5;
+        }
+        
+        currentY += 6; // Space between speeches
+      });
+      
+      currentY += 5; // Extra space after section
+    }
+
+    // Grammarian Section
+    if (agendaJoinData.grammarian && agendaJoinData.grammarian.length) {
+      // Check if we need a new page
+      if (currentY > 240) {
+        pdf.addPage();
+        pageNumber++;
+        currentY = addHeader(pdf, pageNumber);
+      }
+      
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Word of the Day', 14, currentY);
+      currentY += 8;
+      
+      agendaJoinData.grammarian.forEach(word => {
+        // Check if we need a new page before adding word
+        if (currentY > 250) {
+          pdf.addPage();
+          pageNumber++;
+          currentY = addHeader(pdf, pageNumber);
+        }
+        
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(`• ${word.word || 'Word of the Day'}`, 20, currentY);
+        currentY += 5;
+        
+        if (word.meaning) {
+          pdf.setFont('helvetica', 'normal');
+          const meaningLines = pdf.splitTextToSize(word.meaning, 170);
+          pdf.text(meaningLines, 22, currentY);
+          currentY += meaningLines.length * 5;
+        }
+        
+        if (word.example) {
+          pdf.setFont('helvetica', 'italic');
+          pdf.setFontSize(9);
+          pdf.setTextColor(100, 100, 100);
+          const exampleText = `Example: ${word.example}`;
+          const exampleLines = pdf.splitTextToSize(exampleText, 165);
+          pdf.text(exampleLines, 24, currentY);
+          currentY += exampleLines.length * 5;
+          pdf.setTextColor(0, 0, 0); // Reset color
+        }
+        
+        currentY += 6; // Space between words
+      });
+    }
+
+    // Abbreviations Section
+    if (agendaJoinData.abbreviations && agendaJoinData.abbreviations.length) {
+      // Check if we need a new page
+      if (currentY > 240) {
+        pdf.addPage();
+        pageNumber++;
+        currentY = addHeader(pdf, pageNumber);
+      }
+      
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Abbreviations', 14, currentY);
+      currentY += 8;
+      
+      // Calculate how many columns we can fit
+      const pageWidth = 180; // mm
+      const colWidth = 85; // mm per column
+      const maxCols = Math.floor(pageWidth / colWidth);
+      const itemsPerCol = Math.ceil(agendaJoinData.abbreviations.length / maxCols);
+      
+      // Create columns for abbreviations
+      let col = 0;
+      let colX = 14; // Starting X position
+      let colY = currentY;
+      
+      agendaJoinData.abbreviations.forEach((abbr, index) => {
+        // Check if we need a new column
+        if (index > 0 && index % itemsPerCol === 0) {
+          col++;
+          colX = 14 + (col * colWidth);
+          colY = currentY;
+        }
+        
+        // Check if we need a new page
+        if (colY > 250) {
+          pdf.addPage();
+          pageNumber++;
+          currentY = addHeader(pdf, pageNumber);
+          colY = currentY;
+          // Reset column positions
+          col = 0;
+          colX = 14;
+        }
+        
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        
+        // Abbreviation in bold
+        pdf.text(abbr.abbreviation || 'Abbr', colX, colY);
+        
+        // Description in normal weight
+        const abbrWidth = pdf.getStringUnitWidth(abbr.abbreviation || 'Abbr') * 9 / pdf.internal.scaleFactor;
+        pdf.setFont('helvetica', 'normal');
+        
+        // Split description into multiple lines if needed
+        const descLines = pdf.splitTextToSize(abbr.description || '', colWidth - abbrWidth - 10);
+        
+        if (descLines.length === 1) {
+          // Single line, put on same line as abbreviation
+          pdf.text(`: ${descLines[0]}`, colX + abbrWidth + 2, colY);
+          colY += 5; // Line height
+        } else {
+          // Multiple lines, put description on new line
+          pdf.text(`: ${descLines[0]}`, colX + abbrWidth + 2, colY);
+          for (let i = 1; i < descLines.length; i++) {
+            colY += 4;
+            pdf.text(descLines[i], colX + abbrWidth + 2, colY);
+          }
+          colY += 6; // Extra space after multi-line description
+        }
+        
+        colY += 4; // Space between items
+      });
+      
+      currentY = Math.max(currentY, colY) + 5; // Ensure we're at the bottom of the tallest column
+    }
+
+    // Add footer to last page
+    pdf.setFontSize(8);
+    pdf.setFont('helvetica', 'italic');
+    pdf.setTextColor(100, 100, 100);
+    pdf.text('Generated by Toastmasters Agenda Manager', 105, 287, { align: 'center' });
+    
+    // Save PDF with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    pdf.save(`Toastmasters-Agenda-${meetingData?.meetingId || 'meeting'}-${timestamp}.pdf`);
+
+  } catch (error) {
+    console.error('PDF Generation Error:', error);
+    Swal.fire({
+      icon: 'error',
+      title: 'PDF Generation Failed',
+      text: 'An error occurred while generating the PDF.',
+      footer: error.message ? `Error: ${error.message}` : ''
+    });
+  }
+};
+   
+  
   useEffect(() => {
     if (meetingId) {
       console.log('Meeting ID from URL params:', meetingId);
@@ -690,10 +1736,10 @@ const addAgendaAtTop = () => {
           copy.avgTime = val;
         }
     
-        // Normalize to numeric minutes for backend
-        copy.minTime = hasMin ? toBackendMinutes(copy.minTime) : null;
-        copy.avgTime = hasAvg || count === 1 ? toBackendMinutes(copy.avgTime) : null;
-        copy.maxTime = hasMax ? toBackendMinutes(copy.maxTime) : null;
+        // Normalize to numeric seconds for backend
+        copy.minTime = hasMin ? toBackendSeconds(copy.minTime) : null;
+        copy.avgTime = hasAvg || count === 1 ? toBackendSeconds(copy.avgTime) : null;
+        copy.maxTime = hasMax ? toBackendSeconds(copy.maxTime) : null;
     
         // <-- Add orderIndex for drag-and-drop persistence
         copy.orderIndex = idx;
@@ -722,10 +1768,18 @@ const addAgendaAtTop = () => {
           copy.maxSpeechTime = null;
           copy.avgSpeechTime = valS;
         }
-        // Normalize to numeric minutes for backend
-        copy.minSpeechTime = hasMinS ? toBackendMinutes(copy.minSpeechTime) : null;
-        copy.avgSpeechTime = hasAvgS || countS === 1 ? toBackendMinutes(copy.avgSpeechTime) : null;
-        copy.maxSpeechTime = hasMaxS ? toBackendMinutes(copy.maxSpeechTime) : null;
+        // If avg is missing but both min and max present, compute average in seconds
+        if (!copy.avgSpeechTime && copy.minSpeechTime && copy.maxSpeechTime) {
+          const minS = parseDurationToSeconds(copy.minSpeechTime);
+          const maxS = parseDurationToSeconds(copy.maxSpeechTime);
+          if (minS > 0 && maxS > 0) {
+            copy.avgSpeechTime = Math.round((minS + maxS) / 2);
+          }
+        }
+        // Normalize to numeric seconds for backend
+        copy.minSpeechTime = hasMinS ? toBackendSeconds(copy.minSpeechTime) : null;
+        copy.avgSpeechTime = hasAvgS || countS === 1 ? toBackendSeconds(copy.avgSpeechTime) : null;
+        copy.maxSpeechTime = hasMaxS ? toBackendSeconds(copy.maxSpeechTime) : null;
         return copy;
       });
     }
@@ -843,10 +1897,11 @@ const addAgendaAtTop = () => {
     nd.setMinutes(nd.getMinutes() + (parseInt(mins || 0, 10) || 0));
     return nd;
   };
-  // Enhanced duration helpers (support mm or mm:ss)
+  // Enhanced duration helpers (support mm, mm:ss, or hh:mm:ss)
   const parseDurationToSeconds = (val) => {
     if (val == null || val === '') return 0;
-    if (typeof val === 'number') return Math.round(val * 60); // minutes -> seconds
+    // If backend provides a number, it is already seconds
+    if (typeof val === 'number') return Math.round(val);
     const s = String(val).trim();
     if (!s.includes(':')) {
       const mins = parseFloat(s);
@@ -866,17 +1921,26 @@ const addAgendaAtTop = () => {
     nd.setSeconds(nd.getSeconds() + (parseInt(secs || 0, 10) || 0));
     return nd;
   };
-  const formatDurationMMSS = (val) => {
+  // Use the same format shown in read-only cells for editing inputs
+  const formatDurationForInput = (val) => formatDurationHMS(val);
+  const formatDurationHMS = (val) => {
     const secs = parseDurationToSeconds(val);
-    const m = Math.floor(secs / 60);
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
     const s = secs % 60;
+    // Exact minute without hours -> display as plain minutes (e.g., 240s => 4)
+    if (h === 0 && s === 0) {
+      return String(m);
+    }
+    if (h > 0) {
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
     return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   };
-  // Convert UI value to backend minutes (integer). If seconds present, round up to nearest minute.
-  const toBackendMinutes = (val) => {
+  // Convert UI value to backend seconds (integer)
+  const toBackendSeconds = (val) => {
     const secs = parseDurationToSeconds(val);
-    if (!secs) return null; // treat empty as null
-    return Math.ceil(secs / 60);
+    return secs ? Math.max(0, Math.round(secs)) : null;
   };
   const fmtClock = (d) => {
     if (!d) return "";
@@ -948,6 +2012,33 @@ const addAgendaAtTop = () => {
         { leadershipRole: "", member: { memberId: null, memberName: "" } },
       ],
     }));
+  };
+
+  // Quick add helpers at a specific index (after a given row)
+  const addRowAfterIndex = (index) => {
+    setAgendaJoinData((prev) => {
+      const list = [...(prev.agenda || [])];
+      const baseRow = {
+        agendaId: null,
+        clientKey: Date.now(),
+        minTime: "",
+        avgTime: "",
+        maxTime: "",
+        activity: "",
+        member: { memberId: null, memberName: "" },
+      };
+      insertIntoAgendaAt(list, (index ?? list.length) + 1, baseRow);
+      return { ...prev, agenda: list };
+    });
+  };
+
+  const addSectionAfterIndex = (index) => {
+    setAgendaJoinData((prev) => {
+      const list = [...(prev.agenda || [])];
+      const newRow = makeSectionHeader("");
+      insertIntoAgendaAt(list, (index ?? list.length) + 1, newRow);
+      return { ...prev, agenda: list };
+    });
   };
 
   const deleteOfficer = (index) => {
@@ -1069,12 +2160,59 @@ const addAgendaAtTop = () => {
     });
   };
 
+  const deleteSectionAtIndex = (index) => {
+    setAgendaJoinData((prev) => {
+      const updated = [...prev.agenda];
+      if (updated[index]?.rowType === 'section') {
+        updated.splice(index, 1);
+      }
+      return { ...prev, agenda: updated };
+    });
+  };
+
   const deleteSpeech = (index) => {
     setAgendaJoinData((prev) => {
       const updated = [...prev.speakerSpeech];
       updated.splice(index, 1);
       return { ...prev, speakerSpeech: updated };
     });
+  };
+
+  // Confirm delete helpers
+  const confirmDeleteAgendaRow = async (index) => {
+    const res = await Swal.fire({
+      title: 'Delete agenda item?',
+      text: 'This action cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, delete it',
+      cancelButtonText: 'Cancel'
+    });
+    if (res.isConfirmed) deleteAgendaItem(index);
+  };
+
+  const confirmDeleteSpeech = async (index) => {
+    const res = await Swal.fire({
+      title: 'Delete prepared speech?',
+      text: 'This action cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, delete it',
+      cancelButtonText: 'Cancel'
+    });
+    if (res.isConfirmed) deleteSpeech(index);
+  };
+
+  const confirmDeleteSection = async (index) => {
+    const res = await Swal.fire({
+      title: 'Delete section?',
+      text: 'This action cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, delete it',
+      cancelButtonText: 'Cancel'
+    });
+    if (res.isConfirmed) deleteSectionAtIndex(index);
   };
 
   const deleteGrammarian = (index) => {
@@ -1130,7 +2268,7 @@ const addAgendaAtTop = () => {
         title={roleText ? `Assigned roles: ${roleText}` : 'No roles assigned'}
         className={isAvailable ? '' : 'unavailable-option'}
       >
-        {member.memberName}
+        {toTitleCase(member.memberName)}
         {!isAvailable && ' (Not available)'}
         {roleText && ` (${roleText})`}
       </option>
@@ -1148,44 +2286,60 @@ const addAgendaAtTop = () => {
           </h2>
           <p className="text-muted mb-0">Manage all aspects of your meeting agenda</p>
         </div>
-        <div className="btn-group shadow-sm me-2">
-        <button
-          className="btn btn-outline-secondary"
-          onClick={() => navigate("/agenda-list")}
-        >
-          <i className="fas fa-arrow-left me-2"></i>Back
-        </button>
-      </div>
-      <div className="btn-group shadow-sm">
-        <button
-          className="btn btn-outline-primary"
-          onClick={handleDownloadPDF}
-          disabled={!meetingData}
-          title="Download PDF"
-        >
-          <i className="bi bi-file-earmark-pdf me-2"></i>Download PDF
-        </button>
-        {user?.role === "vp education" && (
+        <div className="btn-group btn-group-sm shadow-sm">
           <button
-            className="btn btn-primary"
-            onClick={handleSaveAgenda}
-            disabled={saving}
+            className="btn btn-outline-secondary"
+            onClick={() => navigate("/agenda-list")}
+            title="Back"
           >
-            {saving ? (
-              <>
-                <span className="spinner-border spinner-border-sm me-2" role="status"></span>
-                Saving...
-              </>
-            ) : (
-              <>
-                <i className="fas fa-save me-2"></i>Save All
-              </>
-            )}
+            <i className="fas fa-arrow-left me-1"></i>Back
           </button>
-        )}
+
+          {user?.role === 'vp education' && (
+            <button
+              className={`btn ${isPublished ? 'btn-outline-warning' : 'btn-outline-success'}`}
+              onClick={handleTogglePublish}
+              disabled={publishing}
+              title={isPublished ? 'Unpublish agenda' : 'Publish agenda'}
+            >
+              <i className={`me-1 ${isPublished ? 'fas fa-eye-slash' : 'fas fa-upload'}`}></i>
+              {isPublished ? 'Unpublish' : 'Publish'}
+            </button>
+          )}
+
+          <button
+            className="btn btn-outline-primary"
+            onClick={handleDownloadPDF}
+            disabled={!meetingData || (!isPublished && user?.role !== 'vp education')}
+            title={(!isPublished && user?.role !== 'vp education') ? 'Publish the agenda to enable PDF download' : 'Download PDF'}
+          >
+            <i className="bi bi-file-earmark-pdf me-1"></i>Download PDF
+          </button>
+
+          {user?.role === "vp education" && (
+            <button
+              className="btn btn-primary"
+              onClick={handleSaveAgenda}
+              disabled={saving}
+              title="Save all changes"
+            >
+              {saving ? (
+                <>
+                  <span className="spinner-border spinner-border-sm me-1" role="status"></span>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-save me-1"></i>Save All
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
+      {publishLoaded ? ((isPublished || user?.role === 'vp education') ? (
+        <>
       {/* === Agenda Header === */}
       <div className="card mb-4 agenda-card">
         <div className="card-header agenda-card-header d-flex justify-content-between align-items-center">
@@ -1338,6 +2492,8 @@ const addAgendaAtTop = () => {
       <div className="text-center my-3">
         <img src={toastmastersLogo} alt="Toastmasters Logo" width="250" className="mx-auto d-block" />
       </div>
+
+      
       {/* === Meeting Information (header) === */}
       <div className="card mb-4 agenda-card fade-in">
         <div className="card-body text-center">
@@ -1508,557 +2664,169 @@ const addAgendaAtTop = () => {
       </div>
 
 
+      
+
       {/* === Meeting Agenda === */}
-<div className="card mb-4 agenda-card slide-up">
+      <div className="card mb-4 agenda-card slide-up">
+        <div className="card-header agenda-card-header d-flex justify-content-between align-items-center">
+          <h5 className="mb-0">
+            <i className="fas fa-list-ol me-2 text-info"></i>Meeting Agenda
+          </h5>
+          <div className="d-flex align-items-center gap-2">
+            {user?.role === "vp education" && (
+              <div>
+                <button
+                  className="btn btn-sm btn-outline-primary"
+                  onClick={() => { setEditSection('agenda'); setAgendaDraft(JSON.parse(JSON.stringify(agendaJoinData))); setShowAgendaModal(true); }}
+                >
+                  <i className="fas fa-edit me-1"></i>
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="card-body">
+          {/* Read-only agenda table on the page */}
+          {isPublished || user?.role === 'vp education' ? (
+            <AgendaTable editing={false} />
+          ) : (
+            <div className="alert alert-info mb-0">
+              The agenda is not yet published. Please check back later.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* === Full Agenda Edit Modal === */}
+      {showAgendaModal && (
+        <div
+          className="agenda-modal-backdrop"
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1050,
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}
+          onClick={() => { setShowAgendaModal(false); setEditSection(null); setAgendaDraft(null); }}
+        >
+          <div
+            className="agenda-modal-dialog"
+            style={{ background: '#fff', width: '95%', maxWidth: 1200, maxHeight: '90vh', borderRadius: 8, overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.3)', position: 'relative', zIndex: 1060 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="agenda-modal-header d-flex justify-content-between align-items-center p-3 border-bottom">
+              <h5 className="mb-0"><i className="fas fa-pen-to-square me-2"></i>Edit Meeting Agenda</h5>
+              <button className="btn btn-sm btn-outline-secondary" onClick={() => { setShowAgendaModal(false); setEditSection(null); setAgendaDraft(null); }}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="agenda-modal-toolbar d-flex flex-wrap align-items-center gap-2 p-3 border-bottom">
+              <button className="btn btn-sm btn-success me-2" onClick={addAgendaItem}>
+                <i className="fas fa-plus me-1"></i>Add New Row
+              </button>
+              <button className="btn btn-sm btn-outline-primary me-2" onClick={addRowAfterSelected}>
+                <i className="fas fa-plus me-1"></i>Add Row After Selection
+              </button>
+              <button className="btn btn-sm btn-outline-secondary me-2" onClick={addSectionAfterSelected}>
+                <i className="fas fa-heading me-1"></i>Add Section After Selection
+              </button>
+              <div className="ms-auto d-flex align-items-center">
+                <label className="me-2 text-muted small">Speeches after row:</label>
+                <select
+                  className="form-select form-select-sm w-auto"
+                  value={speechesInsertIndex ?? 0}
+                  onChange={(e)=> setSpeechesInsertIndex(Number(e.target.value))}
+                >
+                  {Array.from({ length: (agendaJoinData.agenda?.length ?? 0) + 1 }).map((_, i) => (
+                    <option key={`idx-${i}`} value={i}>{i}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="agenda-modal-body p-3" style={{ overflow: 'auto', maxHeight: 'calc(90vh - 150px)' }}>
+              {/* Editable agenda table inside modal */}
+              <AgendaTable editing={true} />
+            </div>
+            <div className="agenda-modal-footer d-flex justify-content-end gap-2 p-3 border-top">
+              <button className="btn btn-secondary" onClick={() => { setShowAgendaModal(false); setEditSection(null); setAgendaDraft(null); }}>Back</button>
+              <button className="btn btn-primary" onClick={() => { if (agendaDraft) setAgendaJoinData(agendaDraft); handleSaveAgenda(); setShowAgendaModal(false); setEditSection(null); setAgendaDraft(null); }} disabled={saving} title="Save changes to Meeting Agenda">
+                <i className="fas fa-save me-2"></i>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* === Grammarian === */}
+      <div className="card mb-4 agenda-card slide-up">
   <div className="card-header agenda-card-header d-flex justify-content-between align-items-center">
     <h5 className="mb-0">
-      <i className="fas fa-list-ol me-2 text-info"></i>Meeting Agenda
+      <i className="fas fa-spell-check me-2 text-purple"></i>Word & Phrase of the Day
     </h5>
-    {user?.role === "vp education" && (
-      <div>
-        <button
-          className={`btn btn-sm ${editSection === "agenda" ? "btn-outline-danger" : "btn-outline-primary"} me-2`}
-          onClick={() =>
-            setEditSection(editSection === "agenda" ? null : "agenda")
-          }
-        >
-          <i className={`fas ${editSection === "agenda" ? "fa-times" : "fa-edit"} me-1`}></i>
-          {editSection === "agenda" ? "Cancel" : "Edit"}
-        </button>
-        {editSection === "agenda" && (
-          <button
-            className="btn btn-sm btn-success"
-            onClick={addAgendaItem}
-          >
-            <i className="fas fa-plus me-1"></i>Add New
-          </button>
-        )}
-        {editSection === "agenda" && (
-          <span className="ms-3">
-            <label className="me-2 text-muted small">Speeches after row:</label>
-            <select
-              className="form-select d-inline-block w-auto"
-              value={speechesInsertIndex ?? 0}
-              onChange={(e)=> setSpeechesInsertIndex(Number(e.target.value))}
-            >
-              {Array.from({length: (agendaJoinData.agenda?.length ?? 0) + 1}).map((_,i)=> (
-                <option key={`idx-${i}`} value={i}>{i}</option>
-              ))}
-            </select>
-          </span>
-        )}
-        {editSection === "agenda" && (
-          <>
-            <button className="btn btn-sm btn-outline-primary ms-2" onClick={addRowAfterSelected}>
-              <i className="fas fa-plus me-1"></i>Add Row
-            </button>
-            <button className="btn btn-sm btn-outline-secondary ms-2" onClick={addSectionAfterSelected}>
-              <i className="fas fa-heading me-1"></i>Add Section
-            </button>
-          </>
-        )}
-      </div>
-    )}
   </div>
+
   <div className="card-body">
-    <div className="table-responsive">
-      <table className="table table-bordered agenda-grid">
-        <thead>
-          <tr>
-            <th width="120">TIME</th>
-            <th width="80" className="text-center">MIN</th>
-            <th width="80" className="text-center">AVG</th>
-            <th width="80" className="text-center">MAX</th>
-            <th>ACTIVITY</th>
-            <th width="220">PRESENTER</th>
-            {editSection === "agenda" && <th width="60">Action</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {(() => {
-            const start = parseHMToDate(meetingData?.startTime);
-            let cursor = start ? new Date(start) : null;
-            const rows = [];
-
-            const pushRow = (a, idx, isSpeech = false, zone = 'before') => {
-              if (a.rowType === 'section') {
-                rows.push(
-                  <tr
-                    key={`sec-${idx}`}
-                    className={`table-secondary ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
-                    onClick={()=> setSelectedRowRef({ zone, index: idx })}
-                    draggable={editSection === 'agenda'}
-                    onDragStart={() => handleAgendaDragStart(idx)}
-                    onDragOver={handleAgendaDragOver}
-                    onDrop={() => handleAgendaDrop(idx)}
-                    style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
-                  >
-                    <td className="text-center" colSpan={editSection === 'agenda' ? 7 : 6}>
-                      {editSection === 'agenda' ? (
-                        <input
-                          className="form-control text-center fw-bold"
-                          value={a.activity || ''}
-                          placeholder="SECTION TITLE"
-                          onChange={(e)=>{
-                            const updated = [...agendaJoinData.agenda];
-                            updated[idx].activity = e.target.value;
-                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                          }}
-                        />
-                      ) : (
-                        <strong>{(a.activity || '').toUpperCase()}</strong>
-                      )}
-                    </td>
-                  </tr>
-                );
-                return;
-              }
-              const min = isSpeech ? (a.minSpeechTime || "") : (a.minTime || "");
-              const avg = isSpeech ? (a.avgSpeechTime || "") : (a.avgTime || "");
-              const max = isSpeech ? (a.maxSpeechTime || "") : (a.maxTime || "");
-              const useDurSec = parseDurationToSeconds(max || avg || min || 0) || 0;
-              const timeStr = cursor ? fmtClock(cursor) : "";
-              if (cursor) cursor = addSecondsDate(cursor, useDurSec);
-
-              const hasOnlyOne = (!!min + !!avg + !!max) === 1;
-              const presenterName = a.rowType === 'break' ? '' : (isSpeech
-                ? getMemberNameById(a.member?.memberId)
-                : getMemberNameById(a.member?.memberId));
-              const activityText = isSpeech
-                ? (() => {
-                    const L = a.level ? `L${a.level}` : "";
-                    const P = a.projectNo ? `P${a.projectNo}` : "";
-                    const bits = [L, P, a.speechTitle].filter(Boolean);
-                    return bits.join("  ");
-                  })()
-                : a.activity;
-
-              rows.push(
-                <tr
-                  key={`ag-${isSpeech ? 'sp' : 'ag'}-${idx}`}
-                  className={`fade-in ${selectedRowRef?.zone === zone && selectedRowRef?.index === idx ? 'table-warning' : ''}`}
-                  onClick={()=> setSelectedRowRef({ zone: isSpeech ? 'speech' : zone, index: isSpeech ? null : idx })}
-                  draggable={editSection === 'agenda'}
-                  onDragStart={() => (isSpeech ? handleSpeechDragStart(idx) : handleAgendaDragStart(idx))}
-                  onDragOver={(e) => (isSpeech ? handleSpeechDragOver(e) : handleAgendaDragOver(e))}
-                  onDrop={() => (isSpeech ? handleSpeechDrop(idx) : handleAgendaDrop(idx))}
-                  style={{ cursor: editSection === 'agenda' ? 'move' : 'pointer' }}
-                >
-                  <td>{timeStr}</td>
-                  {editSection === 'agenda' && !isSpeech ? (
-                    <>
-                      <td>
-                        <input
-                          type="text"
-                          className="form-control form-control-sm text-center"
-                          placeholder="mm or mm:ss"
-                          value={min || ''}
-                          onChange={(e)=>{
-                            const updated = [...agendaJoinData.agenda];
-                            updated[idx].minTime = e.target.value;
-                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="text"
-                          className="form-control form-control-sm text-center"
-                          placeholder="mm or mm:ss"
-                          value={avg || ''}
-                          onChange={(e)=>{
-                            const updated = [...agendaJoinData.agenda];
-                            updated[idx].avgTime = e.target.value;
-                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="text"
-                          className="form-control form-control-sm text-center"
-                          placeholder="mm or mm:ss"
-                          value={max || ''}
-                          onChange={(e)=>{
-                            const updated = [...agendaJoinData.agenda];
-                            updated[idx].maxTime = e.target.value;
-                            setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                          }}
-                        />
-                      </td>
-                    </>
+    {agendaJoinData.grammarian.length === 0 ? (
+      <div className="text-center text-muted py-4">
+        <i className="fas fa-book fa-3x mb-3"></i>
+        <p>No words or phrases added yet</p>
+      </div>
+    ) : (
+      <div className="row g-3 align-items-stretch">
+        {(() => {
+          const wodList = agendaJoinData.grammarian.filter(g => g.type === "WOD");
+          const podList = agendaJoinData.grammarian.filter(g => g.type === "POD");
+          return (
+            <>
+              {/* === Left: WOD === */}
+              <div className="col-md-6 d-flex flex-column">
+                <div className="flex-fill d-flex flex-column">
+                  {wodList.length === 0 ? (
+                    <p className="text-muted">No Word of the Day added</p>
                   ) : (
-                    hasOnlyOne ? (
-                      <td colSpan={3} className="text-center fw-bold">{formatDurationMMSS(avg || min || max)}</td>
-                    ) : (
-                      <>
-                        <td className="text-center">{formatDurationMMSS(min)}</td>
-                        <td className="text-center">{formatDurationMMSS(avg)}</td>
-                        <td className="text-center">{formatDurationMMSS(max)}</td>
-                      </>
-                    )
-                  )}
-                  <td>
-                    {editSection === 'agenda' && !isSpeech && a.rowType !== 'section' ? (
-                      <input
-                        className="form-control"
-                        value={a.activity || ''}
-                        placeholder="Activity"
-                        onChange={(e)=>{
-                          const updated = [...agendaJoinData.agenda];
-                          updated[idx].activity = e.target.value;
-                          setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                        }}
-                      />
-                    ) : (
-                      <strong>{activityText}</strong>
-                    )}
-                  </td>
-                  <td className="presenter-cell">
-                    {editSection === 'agenda' && !isSpeech && a.rowType !== 'break' && a.rowType !== 'section' ? (
-                      <select
-                      className="form-select presenter-select"
-                      value={a.member?.memberId || ''}
-                      onChange={(e) => {
-                        const updated = [...agendaJoinData.agenda];
-                        const val = e.target.value;
-                        updated[idx].member = val ? { memberId: Number(val) } : null;
-                        setAgendaJoinData({ ...agendaJoinData, agenda: updated });
-                      }}
-                    >
-                        <option value="">Select presenter</option>
-
-                       {/* ✅ Available members with assigned roles */}
-{members.filter(member => {
-  const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-  const hasRoles = assignedRoles[member.memberId]?.length > 0;
-  return isAvailable && hasRoles;
-}).length > 0 && (
-  <optgroup label="Available with Assigned Roles">
-    {members
-      .filter(member => {
-        const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-        const hasRoles = assignedRoles[member.memberId]?.length > 0;
-        return isAvailable && hasRoles;
-      })
-      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
-      .map(member => {
-        const memberRoles = assignedRoles[member.memberId] || [];
-        const roleNames = getRoleNames(memberRoles);
-        const roleText = roleNames.join(', ');
-        
-        return (
-          <option 
-            key={`avail-with-roles-${member.memberId}`}
-            value={member.memberId}
-            title={`Assigned roles: ${roleText}`}
-          >
-            {member.memberName} ({roleText})
-          </option>
-        );
-      })}
-  </optgroup>
-)}
-
-{/* ✅ Available members with no role assignments */}
-{members.filter(member => {
-  const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-  const hasNoRoles = !assignedRoles[member.memberId]?.length;
-  const hasMarkedAvailability = availableMembers.some(am => 
-    am.memberId === member.memberId && 
-    am.roles && 
-    am.roles.length > 0
-  );
-  return isAvailable && hasNoRoles && !hasMarkedAvailability;
-}).length > 0 && (
-  <optgroup label="Available (No Role Assignments)">
-    {members
-      .filter(member => {
-        const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-        const hasNoRoles = !assignedRoles[member.memberId]?.length;
-        const hasMarkedAvailability = availableMembers.some(am => 
-          am.memberId === member.memberId && 
-          am.roles && 
-          am.roles.length > 0
-        );
-        return isAvailable && hasNoRoles && !hasMarkedAvailability;
-      })
-      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
-      .map(member => (
-        <option 
-          key={`avail-no-assignments-${member.memberId}`}
-          value={member.memberId}
-          title="Available but not assigned any roles"
-        >
-          {member.memberName}
-        </option>
-      ))}
-  </optgroup>
-)}
-
-{/* ✅ Available members with preferred roles */}
-{members.filter(member => {
-  const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-  const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
-  const hasMarkedAvailability = availableMembers.some(am => 
-    am.memberId === member.memberId && 
-    am.roles && 
-    am.roles.length > 0
-  );
-  return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
-}).length > 0 && (
-  <optgroup label="Available with Preferred Roles">
-    {members
-      .filter(member => {
-        const isAvailable = availableMembers.some(am => am.memberId === member.memberId);
-        const hasNoAssignedRoles = !assignedRoles[member.memberId]?.length;
-        const hasMarkedAvailability = availableMembers.some(am => 
-          am.memberId === member.memberId && 
-          am.roles && 
-          am.roles.length > 0
-        );
-        return isAvailable && hasNoAssignedRoles && hasMarkedAvailability;
-      })
-      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
-      .map(member => {
-        const memberAvailability = availableMembers.find(am => am.memberId === member.memberId);
-        const preferredRoles = memberAvailability?.roles || [];
-        const roleText = preferredRoles.join(', ');
-        
-        return (
-          <option 
-            key={`avail-preferred-${member.memberId}`}
-            value={member.memberId}
-            title={roleText ? `Preferred roles: ${roleText}` : 'No preferred roles'}
-          >
-            {member.memberName} ({roleText || 'No preferred roles'})
-          </option>
-        );
-      })}
-  </optgroup>
-)}
-
-{/* ✅ Unavailable members */}
-{members.filter(member => {
-  const isUnavailable = !availableMembers.some(am => am.memberId === member.memberId);
-  return isUnavailable;
-}).length > 0 && (
-  <optgroup label="Unavailable Members">
-    {members
-      .filter(member => !availableMembers.some(am => am.memberId === member.memberId))
-      .sort((a, b) => a.memberName.localeCompare(b.memberName))   
-      .map(member => {
-        const memberRoles = assignedRoles[member.memberId] || [];
-        const roleNames = getRoleNames(memberRoles);
-        const roleText = roleNames.join(', ');
-        
-        return (
-          <option 
-            key={`unavailable-${member.memberId}`}
-            value={member.memberId}
-            title={roleText ? `Assigned roles: ${roleText}` : 'No roles assigned'}
-            className="unavailable-option"
-          >
-            {member.memberName} (Not available){roleText && ` - ${roleText}`}
-          </option>
-        );
-      })}
-  </optgroup>
-)}
-</select>
-                    ) : (
-                      <div className="presenter-name">
-                        {presenterName || (a.rowType !== 'break' ? 'TBD' : '')}
+                    wodList.map((g) => (
+                      <div key={g.grammarianId} className="card mb-3 shadow-sm flex-fill">
+                        <div className="card-header bg-light"><strong>WOD</strong></div>
+                        <div className="card-body">
+                          <p><strong>Word:</strong> {g.word || '-'}</p>
+                          <p><strong>Meaning:</strong> {g.meaning || '-'}</p>
+                          <p><strong>Example:</strong> {g.example || '-'}</p>
+                          <p><strong>Grammarian:</strong> {getMemberNameById(g.member?.memberId) || 'TBD'}</p>
+                        </div>
                       </div>
-                    )}
-                  </td>
-                  {editSection === "agenda" && (
-                    <td>
-                      {!isSpeech ? (
-                        <button
-                          className="btn btn-sm btn-outline-danger delete-btn"
-                          onClick={() => deleteAgendaItem(idx)}
-                          title="Delete agenda item"
-                        >
-                          <i className="fas fa-trash"></i>
-                        </button>
-                      ) : null}
-                    </td>
+                    ))
                   )}
-                </tr>
-              );
-            };
+                </div>
+              </div>
 
-            const agendaList = agendaJoinData.agenda || [];
-            const spList = agendaJoinData.speakerSpeech || [];
-            const insertAt = Math.min(Math.max(0, speechesInsertIndex ?? agendaList.length), agendaList.length);
-
-            agendaList.slice(0, insertAt).forEach((a, idx) => pushRow(a, idx, false));
-            if (spList.length > 0) {
-              const isSelectedHeader = selectedRowRef?.zone === 'speech' && selectedRowRef?.index == null;
-              rows.push(
-                <tr
-                  key="ps-header"
-                  className={`table-secondary ${isSelectedHeader ? 'table-warning' : ''}`}
-                  onClick={()=> setSelectedRowRef({ zone: 'speech', index: null, header: true })}
-                  style={{ cursor: 'pointer' }}
-                  title="Click to insert after speeches"
-                >
-                  <td className="text-center" colSpan={editSection === 'agenda' ? 7 : 6}><strong>PREPARED SPEECHES SESSION</strong></td>
-                </tr>
-              );
-              spList.forEach((s, i) => pushRow(s, i, true));
-            }
-            agendaList.slice(insertAt).forEach((a, idx) => pushRow(a, insertAt + idx, false));
-
-            return rows;
-          })()}
-        </tbody>
-      </table>
-    </div>
-
-    {user?.role === "vp education" && editSection === "agenda" && (
-      <div className="d-flex justify-content-end mt-3">
-        <button
-          className="btn btn-primary"
-          onClick={handleSaveAgenda}
-          disabled={saving}
-          title="Save changes to Meeting Agenda"
-        >
-          <i className="fas fa-save me-2"></i>
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+              {/* === Right: POD === */}
+              <div className="col-md-6 d-flex flex-column">
+                <div className="flex-fill d-flex flex-column">
+                  {podList.length === 0 ? (
+                    <p className="text-muted">No Phrase of the Day added</p>
+                  ) : (
+                    podList.map((g) => (
+                      <div key={g.grammarianId} className="card mb-3 shadow-sm flex-fill">
+                        <div className="card-header bg-light"><strong>POD</strong></div>
+                        <div className="card-body">
+                          <p><strong>Phrase:</strong> {g.word || '-'}</p>
+                          <p><strong>Meaning:</strong> {g.meaning || '-'}</p>
+                          <p><strong>Example:</strong> {g.example || '-'}</p>
+                          <p><strong>Grammarian:</strong> {getMemberNameById(g.member?.memberId) || 'TBD'}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </div>
     )}
   </div>
 </div>
 
-      
-    
-      {/* === Grammarian === */}
-      <div className="card mb-4 agenda-card slide-up">
-        <div className="card-header agenda-card-header d-flex justify-content-between align-items-center">
-          <h5 className="mb-0">
-            <i className="fas fa-spell-check me-2 text-purple"></i>Word of the Day / Phrase of the Day
-          </h5>
-          {/* Edit controls removed as requested */}
-        </div>
-        <div className="card-body">
-          {agendaJoinData.grammarian.length === 0 ? (
-            <div className="text-center text-muted py-4">
-              <i className="fas fa-book fa-3x mb-3"></i>
-              <p>No words of the day added yet</p>
-            </div>
-          ) : (
-            agendaJoinData.grammarian.map((g, idx) => (
-              <div key={g.grammarianId} className="grammarian-card">
-                {editSection === "grammarian" ? (
-                  <div className="edit-form">
-                    <div className="row">
-                      <div className="col-md-6 mb-3">
-                        <label className="form-label">Grammarian</label>
-                        <select
-                          className="form-select"
-                          value={g.member?.memberId || ""}
-                          onChange={(e) => {
-                            const updated = [...agendaJoinData.grammarian];
-                            const val = e.target.value;
-                            updated[idx].member = val ? { memberId: Number(val) } : null;
-                            setAgendaJoinData({ ...agendaJoinData, grammarian: updated });
-                          }}
-                        >
-                          <option value="">Select grammarian</option>
-                          {members.map(m => (
-                            <option key={m.memberId} value={m.memberId}>{m.memberName}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="col-md-4 mb-3">
-                        <label className="form-label">Word</label>
-                        <input
-                          className="form-control"
-                          placeholder="Word of the day"
-                          value={g.word}
-                          onChange={(e) => {
-                            const updated = [...agendaJoinData.grammarian];
-                            updated[idx].word = e.target.value;
-                            setAgendaJoinData({
-                              ...agendaJoinData,
-                              grammarian: updated,
-                            });
-                          }}
-                        />
-                      </div>
-                      <div className="col-md-8 mb-3">
-                        <label className="form-label">Meaning</label>
-                        <input
-                          className="form-control"
-                          placeholder="Definition of the word"
-                          value={g.meaning}
-                          onChange={(e) => {
-                            const updated = [...agendaJoinData.grammarian];
-                            updated[idx].meaning = e.target.value;
-                            setAgendaJoinData({
-                              ...agendaJoinData,
-                              grammarian: updated,
-                            });
-                          }}
-                        />
-                      </div>
-                      <div className="col-12 mb-3">
-                        <label className="form-label">Example</label>
-                        <textarea
-                          className="form-control"
-                          rows={2}
-                          placeholder="Example sentence using the word"
-                          value={g.example}
-                          onChange={(e) => {
-                            const updated = [...agendaJoinData.grammarian];
-                            updated[idx].example = e.target.value;
-                            setAgendaJoinData({
-                              ...agendaJoinData,
-                              grammarian: updated,
-                            });
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <div className="d-flex justify-content-end">
-                      <button
-                        className="btn btn-sm btn-outline-danger delete-btn"
-                        onClick={() => deleteGrammarian(idx)}
-                        title="Delete word"
-                      >
-                        <i className="fas fa-trash me-1"></i>Delete
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="d-flex align-items-center mb-2">
-                      <i className="fas fa-quote-left text-primary me-2"></i>
-                      <h6 className="mb-0">
-                        <strong className="text-primary">{g.word || "Word"}</strong>
-                        <span className="text-muted ms-2">– {g.meaning || "Definition"}</span>
-                      </h6>
-                    </div>
-                    <p className="text-muted mb-0 ps-4">
-                      <i className="fas fa-lightbulb me-2"></i>
-                      <em>{g.example || "Example sentence"}</em>
-                    </p>
-                    <div className="text-end mt-2">
-                      <small className="text-muted">
-                        <i className="fas fa-user me-1"></i>
-                        Grammarian: {getMemberNameById(g.member?.memberId) || "TBD"}
-                      </small>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </div>
 
       {/* === Abbreviations === */}
       <div className="card mb-4 agenda-card fade-in">
@@ -2183,6 +2951,17 @@ const addAgendaAtTop = () => {
         </div>
 
       </div>
+        </>
+      ) : (
+        <div className="alert alert-info">
+          The agenda is not yet published. Please check back later.
+        </div>
+      )) : (
+        <div className="text-center text-muted my-4">
+          <span className="spinner-border spinner-border-sm me-2"></span>
+          Loading agenda status...
+        </div>
+      )}
     </div>
   );
 };
